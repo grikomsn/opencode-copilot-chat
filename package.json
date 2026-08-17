@@ -2,7 +2,7 @@
   "name": "opencode-copilot-chat",
   "displayName": "OpenCode for Copilot Chat",
   "description": "Use OpenCode Zen, OpenCode Go, and OpenCode Console models in GitHub Copilot Chat.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "grikomsn",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -17,8 +17,19 @@
   "engines": {
     "vscode": "^1.125.0"
   },
-  "categories": ["AI", "Chat", "Machine Learning"],
-  "keywords": ["opencode", "zen", "opencode-go", "console", "copilot", "language-model"],
+  "categories": [
+    "AI",
+    "Chat",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "opencode",
+    "zen",
+    "opencode-go",
+    "console",
+    "copilot",
+    "language-model"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onLanguageModelChatProvider:opencodezen",
@@ -28,22 +39,53 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "opencodeCopilot.manage", "title": "OpenCode: Manage Connection" },
-      { "command": "opencodeCopilot.manageZen", "title": "OpenCode Zen: Manage Connection" },
-      { "command": "opencodeCopilot.manageGo", "title": "OpenCode Go: Manage Connection" },
-      { "command": "opencodeCopilot.manageConsole", "title": "OpenCode Console: Manage Connection" },
-      { "command": "opencodeCopilot.importConsoleSession", "title": "OpenCode Console: Import Local Session" },
-      { "command": "opencodeCopilot.refreshModels", "title": "OpenCode: Refresh Models" },
-      { "command": "opencodeCopilot.testConnection", "title": "OpenCode: Test Connection" },
-      { "command": "opencodeCopilot.showUsage", "title": "OpenCode: Show Usage" },
-      { "command": "opencodeCopilot.diagnostics", "title": "OpenCode: Show Diagnostics" }
+      {
+        "command": "opencodeCopilot.manage",
+        "title": "OpenCode: Manage Connection"
+      },
+      {
+        "command": "opencodeCopilot.manageZen",
+        "title": "OpenCode Zen: Manage Connection"
+      },
+      {
+        "command": "opencodeCopilot.manageGo",
+        "title": "OpenCode Go: Manage Connection"
+      },
+      {
+        "command": "opencodeCopilot.manageConsole",
+        "title": "OpenCode Console: Manage Connection"
+      },
+      {
+        "command": "opencodeCopilot.importConsoleSession",
+        "title": "OpenCode Console: Import Local Session"
+      },
+      {
+        "command": "opencodeCopilot.refreshModels",
+        "title": "OpenCode: Refresh Models"
+      },
+      {
+        "command": "opencodeCopilot.testConnection",
+        "title": "OpenCode: Test Connection"
+      },
+      {
+        "command": "opencodeCopilot.showUsage",
+        "title": "OpenCode: Show Usage"
+      },
+      {
+        "command": "opencodeCopilot.diagnostics",
+        "title": "OpenCode: Show Diagnostics"
+      }
     ],
     "configuration": {
       "title": "OpenCode for Copilot Chat",
       "properties": {
         "opencode.defaultMode": {
           "type": "string",
-          "enum": ["zen", "go", "console"],
+          "enum": [
+            "zen",
+            "go",
+            "console"
+          ],
           "default": "zen",
           "description": "OpenCode group targeted by generic connection, refresh, and test commands. Zen, Go, and Console models remain visible as separate provider groups."
         },
@@ -54,55 +96,102 @@
         },
         "opencode.reasoningEffort": {
           "type": "string",
-          "enum": ["off", "on", "auto", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "enum": [
+            "off",
+            "on",
+            "auto",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "default": "high",
           "description": "Legacy fallback thinking mode. Per-family opencode.thinking settings and per-model composer selections take precedence."
         },
         "opencode.thinking.deepseek": {
           "type": "string",
-          "enum": ["off", "low", "medium", "high", "max"],
+          "enum": [
+            "off",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "default": "high",
           "description": "Default thinking effort for DeepSeek models when no per-model composer selection is set."
         },
         "opencode.thinking.glm": {
           "type": "string",
-          "enum": ["off", "high", "max"],
+          "enum": [
+            "off",
+            "high",
+            "max"
+          ],
           "default": "high",
           "description": "Default thinking effort for GLM models when no per-model composer selection is set."
         },
         "opencode.thinking.kimi": {
           "type": "string",
-          "enum": ["on", "off"],
+          "enum": [
+            "on",
+            "off"
+          ],
           "default": "on",
           "description": "Default thinking mode for Kimi models when no per-model composer selection is set."
         },
         "opencode.thinking.minimax": {
           "type": "string",
-          "enum": ["off", "on"],
+          "enum": [
+            "off",
+            "on"
+          ],
           "default": "on",
           "description": "Default thinking mode for MiniMax models when no per-model composer selection is set."
         },
         "opencode.thinking.openai": {
           "type": "string",
-          "enum": ["off", "low", "medium", "high", "xhigh"],
+          "enum": [
+            "off",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "default": "high",
           "description": "Default reasoning effort for OpenAI models when no per-model composer selection is set."
         },
         "opencode.thinking.mimo": {
           "type": "string",
-          "enum": ["off", "low", "medium", "high"],
+          "enum": [
+            "off",
+            "low",
+            "medium",
+            "high"
+          ],
           "default": "high",
           "description": "Default thinking effort for MiMo models when no per-model composer selection is set."
         },
         "opencode.thinking.qwen": {
           "type": "string",
-          "enum": ["auto", "on", "off"],
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
           "default": "auto",
           "description": "Default thinking mode for Qwen models when no per-model composer selection is set."
         },
         "opencode.thinking.qwenBudget": {
           "type": "string",
-          "enum": ["auto", "4096", "16384", "32768", "81920"],
+          "enum": [
+            "auto",
+            "4096",
+            "16384",
+            "32768",
+            "81920"
+          ],
           "default": "auto",
           "description": "Default Qwen thinking budget. Auto omits the budget so the provider chooses it."
         },
