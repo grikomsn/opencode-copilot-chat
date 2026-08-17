@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- 678a3ae: Publish OpenCode under its unique Marketplace identity with the same release metadata and documentation conventions as the sibling providers.
+
 ## 0.2.0
 
 ### Minor Changes
