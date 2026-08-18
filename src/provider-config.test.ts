@@ -24,6 +24,8 @@ test("declares native API-key and Console-profile provider entries", () => {
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
   assert.equal(qualifiedModelId("profile-work", "openai/gpt-5"), "profile-work::openai/gpt-5");
+  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5"), "openai/gpt-5");
+  assert.equal(qualifiedModelId("legacy", "openai/gpt-5"), "openai/gpt-5");
   assert.throws(
     () => consoleProfileFromConfiguration({ profile: "work profile" }),
     /Update this provider entry in Manage Language Models/,

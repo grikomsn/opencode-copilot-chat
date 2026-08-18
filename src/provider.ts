@@ -90,7 +90,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     } catch (error) {
       const message = messageOf(error);
       this.output.appendLine(`[models] ${message}`);
-      void vscode.window.showErrorMessage(message);
+      if (!options.silent) void vscode.window.showErrorMessage(message);
       return [];
     }
     if (!entry) return [];
@@ -284,9 +284,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     }
     const apiKey = typeof configuration.apiKey === "string" ? configuration.apiKey.trim() : "";
     if (!apiKey) return undefined;
+    const legacy = await this.auth.getCredential(this.mode);
     return {
       credential: { mode: this.mode, token: apiKey },
-      credentialId: `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`,
+      credentialId: legacy?.token === apiKey
+        ? "legacy"
+        : `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`,
     };
   }
 

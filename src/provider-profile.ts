@@ -10,5 +10,7 @@ export function consoleProfileFromConfiguration(configuration: Readonly<Record<s
 }
 
 export function qualifiedModelId(credentialId: string, modelId: string): string {
-  return `${credentialId}::${modelId}`;
+  return credentialId === "legacy" || credentialId === `profile-${DEFAULT_CONSOLE_PROFILE}`
+    ? modelId
+    : `${credentialId}::${modelId}`;
 }
