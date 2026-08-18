@@ -36,11 +36,15 @@ export function activate(context: vscode.ExtensionContext): void {
   usageStatus.command = "opencodeCopilot.showUsage";
   renderUsageStatus(usageStatus, providers.zen.getUsageSnapshot());
   updateUsageStatusVisibility(usageStatus);
+  let activeUsageProvider = providers.zen;
   context.subscriptions.push(
     output,
     usageStatus,
     ...Object.values(providers).map((provider) => provider.onDidChangeUsage(({ scope, usage }) => {
-      if (scope === provider.getActiveScope()) renderUsageStatus(usageStatus, usage);
+      if (scope === provider.getActiveScope()) {
+        activeUsageProvider = provider;
+        renderUsageStatus(usageStatus, usage);
+      }
       updateUsageStatusVisibility(usageStatus);
       void context.globalState.update(USAGE_STATE_KEY, Object.assign(
         {},
@@ -59,7 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     ...Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) =>
       vscode.lm.registerLanguageModelChatProvider(definition.vendor, providers[definition.mode])),
-    ...registerCommands(auth, providers, output),
+    ...registerCommands(auth, providers, output, () => activeUsageProvider),
   );
   output.appendLine(`[activate] OpenCode for Copilot Chat ${version} on VS Code ${vscode.version}`);
   void auth.importLocalConsoleSession().then((session) => {

@@ -13,7 +13,7 @@
   <a href="https://github.com/grikomsn/opencode-copilot-chat/blob/main/LICENSE"><img src="https://img.shields.io/github/license/grikomsn/opencode-copilot-chat?style=flat-square" alt="MIT license"></a>
 </p>
 
-This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console as separate provider groups and streams their responses into Copilot Chat without a local proxy.
+This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console as separate provider groups and streams their responses into Copilot Chat without a local proxy. VS Code 1.125 exposes the provider-entry configuration through the built-in Language Models UI; the Marketplace package does not enable proposed APIs.
 
 ## Highlights
 

@@ -1,3 +1,7 @@
+// Compatibility declarations for Language Model provider fields shipped by the
+// VS Code 1.125 host but not yet present in the matching @types/vscode package.
+// They augment existing stable runtime objects; the extension does not enable
+// or call a vscode.proposed.* API.
 declare module "vscode" {
   export interface ProvideLanguageModelChatResponseOptions {
     readonly requestInitiator: string;

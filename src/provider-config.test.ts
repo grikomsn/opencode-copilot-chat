@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
 
 test("declares native API-key and Console-profile provider entries", () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -19,4 +20,12 @@ test("declares native API-key and Console-profile provider entries", () => {
     assert.deepEqual(required, [vendor === "opencodeconsole" ? "profile" : "apiKey"]);
     if (vendor !== "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
   }
+});
+
+test("qualifies model IDs and reports invalid saved Console profiles", () => {
+  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5"), "profile-work::openai/gpt-5");
+  assert.throws(
+    () => consoleProfileFromConfiguration({ profile: "work profile" }),
+    /Update this provider entry in Manage Language Models/,
+  );
 });

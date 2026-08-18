@@ -69,7 +69,9 @@ type Fetcher = typeof fetch;
 type Sleeper = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 
 export class OpenCodeAuth {
-  private readonly refreshPromises = new Map<string, Promise<ConsoleSession>>();
+  private readonly refreshPromises = new Map<string, { identity: string; promise: Promise<ConsoleSession> }>();
+  private readonly sessionMutations = new Map<string, Promise<void>>();
+  private profileIndexMutation: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -235,9 +237,11 @@ export class OpenCodeAuth {
       return;
     }
     const normalized = normalizeConsoleProfile(profile);
-    await this.secrets.delete(consoleSessionKey(normalized));
-    await this.secrets.store(consoleImportStateKey(normalized), "signed-out");
-    await this.writeConsoleProfileIndex((await this.listConsoleProfiles()).filter((value) => value !== normalized));
+    await this.mutateSession(normalized, async () => {
+      await this.secrets.delete(consoleSessionKey(normalized));
+      await this.secrets.store(consoleImportStateKey(normalized), "signed-out");
+      await this.mutateConsoleProfileIndex((profiles) => profiles.delete(normalized));
+    });
   }
 
   async importLocalConsoleSession(
@@ -292,9 +296,11 @@ export class OpenCodeAuth {
     profile: string,
     persist = true,
   ): Promise<ConsoleSession> {
-    let refreshPromise = this.refreshPromises.get(profile);
-    if (!refreshPromise) {
-      refreshPromise = (async () => {
+    const identity = consoleSessionIdentity(session);
+    const existing = this.refreshPromises.get(profile);
+    if (existing?.identity === identity) return existing.promise;
+    let promise: Promise<ConsoleSession>;
+    promise = (async () => {
         const response = await this.fetcher(`${session.server}/auth/device/token`, {
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -306,23 +312,59 @@ export class OpenCodeAuth {
         const refreshToken = string(value.refresh_token) ?? session.refreshToken;
         if (!accessToken) throw new Error("OpenCode Console token refresh returned no access token");
         const next = { ...session, accessToken, refreshToken, expiresAt: this.now() + positiveNumber(value.expires_in, 3600) * 1000 };
-        if (persist) await this.saveConsoleSession(next, profile);
+        if (persist) {
+          await this.mutateSession(profile, async () => {
+            const current = await this.getConsoleSession(profile);
+            if (current && consoleSessionIdentity(current) === identity) await this.storeConsoleSession(next, profile);
+          });
+        }
         return next;
-      })().finally(() => { this.refreshPromises.delete(profile); });
-      this.refreshPromises.set(profile, refreshPromise);
-    }
-    return refreshPromise;
+      })().finally(() => {
+        if (this.refreshPromises.get(profile)?.promise === promise) this.refreshPromises.delete(profile);
+      });
+    this.refreshPromises.set(profile, { identity, promise });
+    return promise;
   }
 
   private async saveConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
-    await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
-    await this.secrets.store(consoleImportStateKey(profile), "managed");
-    const profiles = await this.listConsoleProfiles();
-    if (!profiles.includes(profile)) await this.writeConsoleProfileIndex([...profiles, profile]);
+    const normalized = normalizeConsoleProfile(profile);
+    await this.mutateSession(normalized, () => this.storeConsoleSession(session, normalized));
   }
 
-  private async writeConsoleProfileIndex(profiles: readonly string[]): Promise<void> {
-    await this.secrets.store(CONSOLE_PROFILES_KEY, JSON.stringify([...new Set(profiles)].sort()));
+  private async storeConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
+    await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
+    await this.secrets.store(consoleImportStateKey(profile), "managed");
+    await this.mutateConsoleProfileIndex((profiles) => { profiles.add(profile); });
+  }
+
+  private async readConsoleProfileIndex(): Promise<Set<string>> {
+    try {
+      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
+      return new Set(Array.isArray(parsed) ? parsed.flatMap((value) => {
+        try { return typeof value === "string" ? [normalizeConsoleProfile(value)] : []; } catch { return []; }
+      }) : []);
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  private async mutateSession(profile: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.sessionMutations.get(profile) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.sessionMutations.set(profile, current);
+    try { await current; } finally {
+      if (this.sessionMutations.get(profile) === current) this.sessionMutations.delete(profile);
+    }
+  }
+
+  private async mutateConsoleProfileIndex(operation: (profiles: Set<string>) => void): Promise<void> {
+    const current = this.profileIndexMutation.catch(() => undefined).then(async () => {
+      const profiles = await this.readConsoleProfileIndex();
+      operation(profiles);
+      await this.secrets.store(CONSOLE_PROFILES_KEY, JSON.stringify([...profiles].sort()));
+    });
+    this.profileIndexMutation = current;
+    await current;
   }
 
   private async getJson(server: string, path: string, token: string): Promise<unknown> {
@@ -330,6 +372,10 @@ export class OpenCodeAuth {
     if (!response.ok) throw new Error(`OpenCode Console ${path} failed (${response.status})`);
     return response.json();
   }
+}
+
+function consoleSessionIdentity(session: ConsoleSession): string {
+  return `${session.accessToken}\u0000${session.refreshToken}\u0000${session.expiresAt}`;
 }
 
 export class LocalOpenCodeSessionImporter {

@@ -13,6 +13,7 @@ import { buildFunctionTools, buildResponsesTools, originalToolName } from "./too
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
+import { consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
   readonly rawModelId: string;
@@ -29,6 +30,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   private readonly credentials = new Map<string, Credential>();
   private readonly usageByScope = new Map<string, OpenCodeUsageSnapshot>();
   private activeCredentialId = "legacy";
+  private lastUsedCredentialId = "legacy";
   private activeProfile = DEFAULT_CONSOLE_PROFILE;
 
   readonly onDidChangeLanguageModelChatInformation = this.changeEmitter.event;
@@ -48,22 +50,27 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   }
 
   fireDidChange(): void { this.changeEmitter.fire(); }
-  getActiveScope(): string { return this.scopeFor(this.activeCredentialId); }
+  getActiveScope(): string { return this.scopeFor(this.lastUsedCredentialId); }
   getActiveCredentialId(): string { return this.activeCredentialId; }
   getActiveProfile(): string { return this.activeProfile; }
   setActiveConsoleProfile(profile: string): void {
     this.activeProfile = normalizeConsoleProfile(profile);
     this.activeCredentialId = `profile-${this.activeProfile}`;
-    this.usageEmitter.fire({ scope: this.getActiveScope(), usage: this.getUsageSnapshot() });
   }
   getUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageByScope.get(this.getActiveScope()) ?? {}; }
+  getManagementUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageByScope.get(this.scopeFor(this.activeCredentialId)) ?? {}; }
   getUsageSnapshots(): Readonly<Record<string, OpenCodeUsageSnapshot>> { return Object.fromEntries(this.usageByScope); }
-  clearUsage(): void { this.setUsageSnapshot(this.getActiveScope(), {}); }
+  clearUsage(): void { this.setUsageSnapshot(this.scopeFor(this.activeCredentialId), {}); }
+
+  invalidateConsoleProfile(profile: string): void {
+    this.credentials.delete(`profile-${normalizeConsoleProfile(profile)}`);
+  }
 
   async refreshModels(): Promise<readonly OpenCodeModel[]> {
     const mode = this.mode;
-    const credential = this.credentials.get(this.activeCredentialId)
-      ?? await this.auth.getCredential(mode, false, this.activeProfile);
+    const credentialId = mode === "console" ? `profile-${this.activeProfile}` : "legacy";
+    this.activeCredentialId = credentialId;
+    const credential = await this.auth.getCredential(mode, false, this.activeProfile);
     if (credential) this.credentials.set(this.activeCredentialId, credential);
     const models = await this.catalogFor(this.activeCredentialId).refresh(mode, credential, this.freeOnly());
     this.changeEmitter.fire();
@@ -101,10 +108,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     token: vscode.CancellationToken,
   ): Promise<void> {
     const mode = information.mode;
-    this.activeCredentialId = information.credentialId;
-    if (information.profile) this.activeProfile = information.profile;
-    let credential = this.credentials.get(information.credentialId);
+    this.lastUsedCredentialId = information.credentialId;
+    let credential = information.mode === "console"
+      ? await this.auth.getCredential("console", false, information.profile ?? DEFAULT_CONSOLE_PROFILE)
+      : this.credentials.get(information.credentialId);
     if (!credential) throw new Error(`The credential for this OpenCode provider entry is unavailable. Update it in Manage Language Models.`);
+    this.credentials.set(information.credentialId, credential);
     const catalog = this.catalogFor(information.credentialId);
     const model = catalog.get(mode, information.catalogId) ?? catalog.list(mode).find((item) => item.rawModelId === information.rawModelId);
     if (!model) throw new Error(`OpenCode model is no longer available: ${information.rawModelId}`);
@@ -227,7 +236,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const defaultBudget = family === "qwen" ? config.get<string>("thinking.qwenBudget", "auto") : undefined;
     const configurationSchema = modelConfigurationSchema(model, defaultEffort, defaultBudget);
     return {
-      id: model.id,
+      id: qualifiedModelId(credentialId, model.id),
       name: model.name,
       version: "3-provider-groups",
       family: model.family,
@@ -236,6 +245,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       ...(configurationSchema ? { configurationSchema } : {}),
       isUserSelectable: true,
       isBYOK: true,
+      requiresAuthorization: { label: `OpenCode ${this.mode === "console" ? `Console (${profile ?? DEFAULT_CONSOLE_PROFILE})` : this.mode === "go" ? "Go" : "Zen"}` },
       rawModelId: model.rawModelId,
       catalogId: model.id,
       mode,
@@ -260,9 +270,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     profile?: string;
   } | undefined> {
     if (this.mode === "console") {
-      const profile = normalizeConsoleProfile(typeof configuration.profile === "string"
-        ? configuration.profile
-        : DEFAULT_CONSOLE_PROFILE);
+      const profile = consoleProfileFromConfiguration(configuration);
       const credential = await this.auth.getCredential("console", false, profile);
       return credential ? { credential, credentialId: `profile-${profile}`, profile } : undefined;
     }
@@ -284,6 +292,33 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   private setUsageSnapshot(scope: string, usage: OpenCodeUsageSnapshot): void {
     this.usageByScope.set(scope, usage);
     this.usageEmitter.fire({ scope, usage });
+  }
+
+  async testConnection(): Promise<{ model: string; text: string }> {
+    const models = await this.refreshModels();
+    const model = models[0];
+    if (!model) throw new Error(`OpenCode ${this.mode} registered no usable models`);
+    const information = this.toInformation(
+      model,
+      this.mode,
+      this.activeCredentialId,
+      this.mode === "console" ? this.activeProfile : undefined,
+    );
+    let text = "";
+    const cancellation = new vscode.CancellationTokenSource();
+    try {
+      await this.provideLanguageModelChatResponse(
+        information,
+        [vscode.LanguageModelChatMessage.User("Reply with OK.")],
+        { toolMode: vscode.LanguageModelChatToolMode.Auto, requestInitiator: "opencodeCopilot.testConnection" },
+        { report: (part) => { if (part instanceof vscode.LanguageModelTextPart) text += part.value; } },
+        cancellation.token,
+      );
+    } finally {
+      cancellation.dispose();
+    }
+    if (!text.trim()) throw new Error(`${model.name} returned no text`);
+    return { model: model.name, text: text.trim() };
   }
 }
 

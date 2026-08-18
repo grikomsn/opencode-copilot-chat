@@ -8,7 +8,12 @@ import { formatUsageRows, type UsageDisplayRow } from "../usage/presentation";
 
 export type OpenCodeProviders = Readonly<Record<OpenCodeMode, OpenCodeProvider>>;
 
-export function registerCommands(auth: OpenCodeAuth, providers: OpenCodeProviders, output: vscode.OutputChannel): vscode.Disposable[] {
+export function registerCommands(
+  auth: OpenCodeAuth,
+  providers: OpenCodeProviders,
+  output: vscode.OutputChannel,
+  usageProvider: () => OpenCodeProvider = () => providers[currentMode()],
+): vscode.Disposable[] {
   return [
     vscode.commands.registerCommand("opencodeCopilot.manage", () => manage(auth, providers, output)),
     vscode.commands.registerCommand("opencodeCopilot.manageZen", () => manage(auth, providers, output, "zen")),
@@ -19,7 +24,7 @@ export function registerCommands(auth: OpenCodeAuth, providers: OpenCodeProvider
     vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
     vscode.commands.registerCommand("opencodeCopilot.refreshModels", () => refreshModels(providers[currentMode()])),
     vscode.commands.registerCommand("opencodeCopilot.testConnection", () => testConnection(providers[currentMode()], currentMode(), output)),
-    vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(providers[currentMode()])),
+    vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(usageProvider())),
     vscode.commands.registerCommand("opencodeCopilot.diagnostics", () => diagnostics(auth, providers)),
   ];
 }
@@ -52,7 +57,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   const picked = await vscode.window.showQuickPick(choices, { title: `OpenCode — ${signedIn ? `${label(mode)} connected` : "not connected"}${mode === "console" ? ` [${profile}]` : ""}` });
   if (!picked) return;
   if (picked.action === "logs") output.show(true);
-  else if (picked.action === "usage") await showUsage(provider);
+  else if (picked.action === "usage") await showUsage(provider, true);
   else if (picked.action === "test") await testConnection(provider, mode, output);
   else if (picked.action === "refresh") await refreshModels(provider);
   else if (picked.action === "org") await switchOrganization(auth, provider, output, profile);
@@ -216,6 +221,7 @@ async function switchOrganization(auth: OpenCodeAuth, provider: OpenCodeProvider
 
 async function signOut(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
   await auth.signOut(mode, profile);
+  if (mode === "console") provider.invalidateConsoleProfile(profile);
   provider.clearUsage();
   provider.fireDidChange();
   vscode.window.showInformationMessage(`Signed out of OpenCode ${label(mode)}${mode === "console" ? ` profile “${profile}”` : ""}.`);
@@ -232,28 +238,9 @@ async function refreshModels(provider: OpenCodeProvider): Promise<void> {
 
 async function testConnection(provider: OpenCodeProvider, mode: OpenCodeMode, output: vscode.OutputChannel): Promise<void> {
   try {
-    await provider.refreshModels();
-    const models = await vscode.lm.selectChatModels({ vendor: OPENCODE_PROVIDER_DEFINITIONS[mode].vendor });
-    const model = models[0];
-    if (!model) throw new Error(`OpenCode ${label(mode)} registered no usable models`);
-    const cancellation = new vscode.CancellationTokenSource();
-    let text = "";
-    try {
-      const response = await model.sendRequest(
-        [vscode.LanguageModelChatMessage.User("Reply with OK.")],
-        { justification: "Verify the configured OpenCode provider connection" },
-        cancellation.token,
-      );
-      for await (const chunk of response.text) {
-        text += chunk;
-        if (text.length >= 80) break;
-      }
-    } finally {
-      cancellation.dispose();
-    }
-    if (!text.trim()) throw new Error(`${model.name} returned no text`);
-    output.appendLine(`[test] mode=${mode} model=${model.id} responseLength=${String(text.length)}`);
-    vscode.window.showInformationMessage(`OpenCode ${label(mode)} inference verified with ${model.name}: ${text.trim().slice(0, 80)}`);
+    const result = await provider.testConnection();
+    output.appendLine(`[test] mode=${mode} model=${result.model} responseLength=${String(result.text.length)}`);
+    vscode.window.showInformationMessage(`OpenCode ${label(mode)} inference verified with ${result.model}: ${result.text.slice(0, 80)}`);
   } catch (error) {
     output.appendLine(`[test] mode=${mode} ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode connection test failed: ${messageOf(error)}`);
@@ -264,8 +251,8 @@ interface UsageQuickPickItem extends vscode.QuickPickItem {
   action?: "manage" | "diagnostics";
 }
 
-async function showUsage(provider: OpenCodeProvider): Promise<void> {
-  const snapshot = provider.getUsageSnapshot();
+async function showUsage(provider: OpenCodeProvider, management = false): Promise<void> {
+  const snapshot = management ? provider.getManagementUsageSnapshot() : provider.getUsageSnapshot();
   const picked = await vscode.window.showQuickPick<UsageQuickPickItem>([
     ...formatUsageRows(snapshot).map(toUsageQuickPickItem),
     { label: "Actions", kind: vscode.QuickPickItemKind.Separator },
@@ -306,7 +293,7 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
       "",
       `- Legacy command credential: ${(await auth.hasCredential(mode, mode === "console" ? activeConsole : DEFAULT_CONSOLE_PROFILE)) ? "present" : "missing"}`,
       `- Registered models: ${models.length}`,
-      `- Active-entry tracked usage: ${providers[mode].getUsageSnapshot().tracked?.totalTokens ?? 0} tokens`,
+      `- Management-entry tracked usage: ${providers[mode].getManagementUsageSnapshot().tracked?.totalTokens ?? 0} tokens`,
       "",
       ...models.map((model) => `- ${model.id} (${model.maxInputTokens} input tokens)`),
       "",

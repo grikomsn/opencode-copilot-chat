@@ -9,8 +9,12 @@ test("normalizes safe Console profile IDs", () => {
 
 class Secrets {
   private readonly values = new Map<string, string>();
+  constructor(private readonly delayProfileIndex = false) {}
   async get(key: string): Promise<string | undefined> { return this.values.get(key); }
-  async store(key: string, value: string): Promise<void> { this.values.set(key, value); }
+  async store(key: string, value: string): Promise<void> {
+    if (this.delayProfileIndex && key === "opencode.consoleProfiles.v1") await new Promise((resolve) => setTimeout(resolve, 5));
+    this.values.set(key, value);
+  }
   async delete(key: string): Promise<void> { this.values.delete(key); }
 }
 
@@ -86,6 +90,46 @@ test("refreshes named Console sessions with isolated locks", async () => {
   assert.equal(personal?.token, "new-default-refresh");
   assert.equal(work?.token, "new-work-refresh");
   assert.equal(refreshes, 2);
+});
+
+test("serializes concurrent Console profile-index updates", async () => {
+  const secrets = new Secrets(true);
+  let account = 0;
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) {
+      account += 1;
+      return Response.json({ access_token: `access-${account}`, refresh_token: `refresh-${account}`, expires_in: 3600 });
+    }
+    if (url.endsWith("/api/user")) return Response.json({ id: `account-${account}`, email: `user-${account}@example.com` });
+    return Response.json([]);
+  };
+  const auth = new OpenCodeAuth(secrets as never, fetcher, () => 1_000, async () => undefined);
+  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
+  await Promise.all([
+    auth.completeDeviceSignIn(device, undefined, "personal"),
+    auth.completeDeviceSignIn(device, undefined, "work"),
+  ]);
+  assert.deepEqual(await auth.listConsoleProfiles(), ["personal", "work"]);
+});
+
+test("does not persist a Console refresh that finishes after sign-out", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1.work", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "old", refreshToken: "refresh",
+    expiresAt: 0, accountId: "work", email: "work@example.com", orgs: [],
+  }));
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const auth = new OpenCodeAuth(secrets as never, async () => {
+    await wait;
+    return Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600 });
+  }, () => 1_000);
+  const refreshing = auth.getCredential("console", false, "work");
+  await auth.signOut("console", "work");
+  release();
+  await refreshing;
+  assert.equal(await auth.getConsoleSession("work"), undefined);
 });
 
 test("signing out of Console clears only the VS Code-managed session", async () => {
