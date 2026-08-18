@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- 393f13b: Align the README, package metadata, and lockfile identity with the extension's provider groups, image-input support, discovery keywords, and model-specific thinking controls.
+
 ## 0.3.0
 
 ### Minor Changes
