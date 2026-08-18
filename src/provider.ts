@@ -84,7 +84,15 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     if (token.isCancellationRequested) return [];
     if (!options.configuration) return [];
     const mode = this.mode;
-    const entry = await this.entryFromConfiguration(options.configuration);
+    let entry: Awaited<ReturnType<OpenCodeProvider["entryFromConfiguration"]>>;
+    try {
+      entry = await this.entryFromConfiguration(options.configuration);
+    } catch (error) {
+      const message = messageOf(error);
+      this.output.appendLine(`[models] ${message}`);
+      void vscode.window.showErrorMessage(message);
+      return [];
+    }
     if (!entry) return [];
     const { credential, credentialId, profile } = entry;
     this.credentials.set(credentialId, credential);
