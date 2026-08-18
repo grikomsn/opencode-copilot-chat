@@ -73,11 +73,11 @@
       },
       {
         "command": "opencodeCopilot.refreshModels",
-        "title": "OpenCode: Refresh Models"
+        "title": "OpenCode: Refresh Models (Legacy Key / Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.testConnection",
-        "title": "OpenCode: Test Connection"
+        "title": "OpenCode: Test Connection (Legacy Key / Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.showUsage",

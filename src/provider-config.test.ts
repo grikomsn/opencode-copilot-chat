@@ -5,7 +5,10 @@ import { consoleProfileFromConfiguration, qualifiedModelId } from "./provider-pr
 
 test("declares native API-key and Console-profile provider entries", () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
-    contributes: { languageModelChatProviders: Array<Record<string, unknown>> };
+    contributes: {
+      commands: Array<{ command: string; title: string }>;
+      languageModelChatProviders: Array<Record<string, unknown>>;
+    };
   };
   const providers = manifest.contributes.languageModelChatProviders;
   for (const vendor of ["opencodezen", "opencodego", "opencodeconsole"]) {
@@ -19,6 +22,12 @@ test("declares native API-key and Console-profile provider entries", () => {
     const required = configuration.required;
     assert.deepEqual(required, [vendor === "opencodeconsole" ? "profile" : "apiKey"]);
     if (vendor !== "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
+  }
+  for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
+    assert.match(
+      manifest.contributes.commands.find((item) => item.command === command)?.title ?? "",
+      /Legacy Key \/ Active Console Profile/,
+    );
   }
 });
 

@@ -1,12 +1,11 @@
 import * as vscode from "vscode";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type Credential } from "./auth/auth";
 import { messageOf, responseError } from "./errors";
 import { catalogScope, ModelCatalog, type OpenCodeModel } from "./models/catalog";
 import { advertisedModelLimits, requestOutputLimit } from "./models/limits";
 import { modelConfigurationSchema, requestModelConfiguration, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
 import { convertChatMessages, convertResponsesMessages } from "./provider/messages";
-import { apiKeyCredentialId, managementCredentialOptions, resolveManagementCredential, type ManagementCredentialOption } from "./provider/management";
 import { buildRequestBody, mergeRequestBody } from "./provider/request";
 import { analyzeHttp400ForRetry, isTransientServerError, retryDelayMs } from "./provider/retry";
 import { reportStreamEvent } from "./provider/response";
@@ -69,16 +68,15 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
 
   async refreshModels(): Promise<readonly OpenCodeModel[]> {
     const mode = this.mode;
-    const credentialId = mode === "console" ? `profile-${this.activeProfile}` : this.activeCredentialId;
+    const credentialId = mode === "console" ? `profile-${this.activeProfile}` : "legacy";
     this.activeCredentialId = credentialId;
-    const legacy = await this.auth.getCredential(mode, false, this.activeProfile);
-    const credential = mode === "console"
-      ? legacy
-      : resolveManagementCredential(credentialId, this.credentials, legacy);
+    const credential = await this.auth.getCredential(mode, false, this.activeProfile);
     if (!credential) {
-      throw new Error(`The selected OpenCode ${mode === "go" ? "Go" : "Zen"} provider credential is unavailable. Choose an entry again or update it in Manage Language Models.`);
+      throw new Error(mode === "console"
+        ? `Sign in to OpenCode Console profile “${this.activeProfile}” first`
+        : `No legacy OpenCode ${mode === "go" ? "Go" : "Zen"} credential is configured. Use the OpenCode sign-in command; native entries are managed through Manage Language Models.`);
     }
-    if (credential) this.credentials.set(this.activeCredentialId, credential);
+    this.credentials.set(this.activeCredentialId, credential);
     const models = await this.catalogFor(this.activeCredentialId).refresh(mode, credential, this.freeOnly());
     this.changeEmitter.fire();
     return models;
@@ -124,7 +122,6 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   ): Promise<void> {
     const mode = information.mode;
     this.lastUsedCredentialId = information.credentialId;
-    this.activeCredentialId = information.credentialId;
     let credential = information.mode === "console"
       ? await this.auth.getCredential("console", false, information.profile ?? DEFAULT_CONSOLE_PROFILE)
       : this.credentials.get(information.credentialId);
@@ -297,24 +294,8 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       credential: { mode: this.mode, token: apiKey },
       credentialId: legacy?.token === apiKey
         ? "legacy"
-        : apiKeyCredentialId(apiKey),
+        : `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`,
     };
-  }
-
-  async managementCredentials(): Promise<readonly ManagementCredentialOption[]> {
-    if (this.mode === "console") return [];
-    return managementCredentialOptions(
-      this.credentials.keys(),
-      Boolean(await this.auth.getCredential(this.mode)),
-    );
-  }
-
-  selectManagementCredential(credentialId: string): void {
-    if (this.mode === "console") return;
-    if (credentialId !== "legacy" && !this.credentials.has(credentialId)) {
-      throw new Error(`OpenCode ${this.mode === "go" ? "Go" : "Zen"} provider entry ${credentialId} is unavailable`);
-    }
-    this.activeCredentialId = credentialId;
   }
 
   private scopeFor(credentialId: string): string { return `${this.mode}:${credentialId}`; }

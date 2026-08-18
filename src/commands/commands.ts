@@ -22,7 +22,7 @@ export function registerCommands(
     vscode.commands.registerCommand("opencodeCopilot.importConsoleSession", () => importConsoleSession(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.addConsoleAccount", () => addConsoleAccount(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
-    vscode.commands.registerCommand("opencodeCopilot.refreshModels", () => refreshModels(providers[currentMode()], currentMode())),
+    vscode.commands.registerCommand("opencodeCopilot.refreshModels", () => refreshModels(providers[currentMode()])),
     vscode.commands.registerCommand("opencodeCopilot.testConnection", () => testConnection(providers[currentMode()], currentMode(), output)),
     vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(usageProvider())),
     vscode.commands.registerCommand("opencodeCopilot.diagnostics", () => diagnostics(auth, providers)),
@@ -33,10 +33,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   const mode = requestedMode ?? currentMode();
   const provider = providers[mode];
   const profile = mode === "console" ? provider.getActiveProfile() : DEFAULT_CONSOLE_PROFILE;
-  if (mode !== "console") await discoverNativeCredentials(provider, mode);
-  const signedIn = mode === "console"
-    ? await auth.hasCredential(mode, profile)
-    : (await provider.managementCredentials()).length > 0;
+  const signedIn = await auth.hasCredential(mode, profile);
   const choices = signedIn
     ? [
         { label: `$(pulse) Show ${label(mode)} usage`, action: "usage" },
@@ -62,7 +59,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   if (picked.action === "logs") output.show(true);
   else if (picked.action === "usage") await showUsage(provider, true);
   else if (picked.action === "test") await testConnection(provider, mode, output);
-  else if (picked.action === "refresh") await refreshModels(provider, mode);
+  else if (picked.action === "refresh") await refreshModels(provider);
   else if (picked.action === "org") await switchOrganization(auth, provider, output, profile);
   else if (picked.action === "profile") await selectConsoleProfile(auth, providers.console);
   else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
@@ -230,9 +227,8 @@ async function signOut(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: Ope
   vscode.window.showInformationMessage(`Signed out of OpenCode ${label(mode)}${mode === "console" ? ` profile “${profile}”` : ""}.`);
 }
 
-async function refreshModels(provider: OpenCodeProvider, mode: OpenCodeMode): Promise<void> {
+async function refreshModels(provider: OpenCodeProvider): Promise<void> {
   try {
-    if (!await selectManagementCredential(provider, mode, "refresh")) return;
     const models = await provider.refreshModels();
     vscode.window.showInformationMessage(`Refreshed ${models.length} OpenCode models.`);
   } catch (error) {
@@ -242,7 +238,6 @@ async function refreshModels(provider: OpenCodeProvider, mode: OpenCodeMode): Pr
 
 async function testConnection(provider: OpenCodeProvider, mode: OpenCodeMode, output: vscode.OutputChannel): Promise<void> {
   try {
-    if (!await selectManagementCredential(provider, mode, "test")) return;
     const result = await provider.testConnection();
     output.appendLine(`[test] mode=${mode} model=${result.model} responseLength=${String(result.text.length)}`);
     vscode.window.showInformationMessage(`OpenCode ${label(mode)} inference verified with ${result.model}: ${result.text.slice(0, 80)}`);
@@ -250,34 +245,6 @@ async function testConnection(provider: OpenCodeProvider, mode: OpenCodeMode, ou
     output.appendLine(`[test] mode=${mode} ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode connection test failed: ${messageOf(error)}`);
   }
-}
-
-async function discoverNativeCredentials(provider: OpenCodeProvider, mode: OpenCodeMode): Promise<void> {
-  if (mode === "console") return;
-  await vscode.lm.selectChatModels({ vendor: OPENCODE_PROVIDER_DEFINITIONS[mode].vendor });
-}
-
-async function selectManagementCredential(
-  provider: OpenCodeProvider,
-  mode: OpenCodeMode,
-  action: "refresh" | "test",
-): Promise<boolean> {
-  if (mode === "console") return true;
-  await discoverNativeCredentials(provider, mode);
-  const options = await provider.managementCredentials();
-  if (!options.length) {
-    throw new Error(`No OpenCode ${label(mode)} credential is available. Add an entry in Manage Language Models or use the legacy sign-in command.`);
-  }
-  const selected = options.length === 1
-    ? options[0]
-    : await vscode.window.showQuickPick(options.map((option) => ({
-        label: option.label,
-        description: option.description,
-        credentialId: option.credentialId,
-      })), { title: `Choose the OpenCode ${label(mode)} entry to ${action === "refresh" ? "refresh" : "test"}` });
-  if (!selected) return false;
-  provider.selectManagementCredential(selected.credentialId);
-  return true;
 }
 
 interface UsageQuickPickItem extends vscode.QuickPickItem {
