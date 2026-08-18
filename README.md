@@ -20,11 +20,11 @@ This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console a
 - Separate OpenCode Zen, Go, and Console model groups
 - API-key and Console device-code authentication in VS Code Secret Storage
 - Read-only, one-way import of an existing local Console session
-- Credential-scoped live discovery with six-hour persisted models.dev enrichment
-- Streaming text, reasoning, images, and agent-mode tool calls
+- Credential-scoped live discovery, with six-hour persisted models.dev enrichment for Zen and Go
+- Streaming text, reasoning, image inputs, and agent-mode tool calls
 - Model-specific Thinking Effort and Qwen thinking-budget controls
 - Bounded gateway retries and context-aware token limits
-- Shared status-bar token tracking and secret-safe diagnostics
+- Shared status-bar inference-token tracking and secret-safe diagnostics
 
 ## Quick start
 

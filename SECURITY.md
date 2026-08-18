@@ -1,5 +1,18 @@
-# Security
+# Security Policy
 
-Report security issues privately to the repository maintainers rather than opening a public issue with credentials, OAuth artifacts, or captured prompts.
+## Supported versions
 
-The extension stores API keys and Console tokens in VS Code Secret Storage. Console sign-in also synchronizes the account to the standard local OpenCode SQLite database so the official CLI can use the same account. Tokens and prompts are never written to logs.
+Security fixes target the latest version published on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat). Update to the latest release before reporting an issue that may already be fixed.
+
+## Reporting a vulnerability
+
+Email [security@nibras.co](mailto:security@nibras.co). Do not open a public issue or discussion.
+
+Include, when applicable:
+
+- A concise description and potential impact
+- Affected extension and VS Code versions
+- Reproduction steps or a proof of concept
+- Relevant logs with API keys, Console tokens, prompts, account identifiers, and personal data removed
+
+You should receive an acknowledgment and a request for any missing details. Please allow time for investigation and a release before public disclosure. If the report is not security-sensitive, use the normal issue templates instead.
