@@ -128,7 +128,72 @@ test("does not persist a Console refresh that finishes after sign-out", async ()
   const refreshing = auth.getCredential("console", false, "work");
   await auth.signOut("console", "work");
   release();
-  await refreshing;
+  await assert.rejects(refreshing, /changed while its session was refreshing/);
+  assert.equal(await auth.getConsoleSession("work"), undefined);
+});
+
+test("does not persist a device sign-in that finishes after sign-out", async () => {
+  const secrets = new Secrets();
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) {
+      await wait;
+      return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+    }
+    if (url.endsWith("/api/user")) return Response.json({ id: "work", email: "work@example.com" });
+    return Response.json([]);
+  };
+  const auth = new OpenCodeAuth(secrets as never, fetcher, () => 1_000, async () => undefined);
+  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
+  const signingIn = auth.completeDeviceSignIn(device, undefined, "work");
+  await auth.signOut("console", "work");
+  release();
+  await assert.rejects(signingIn, /was superseded/);
+  assert.equal(await auth.getConsoleSession("work"), undefined);
+});
+
+test("does not persist an organization change that finishes after sign-out", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1.work", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
+    expiresAt: Date.now() + 3600_000, accountId: "work", email: "work@example.com",
+    orgs: [{ id: "org", name: "Organization" }],
+  }));
+  const auth = new OpenCodeAuth(secrets as never);
+  const selecting = auth.selectOrganization({ id: "org", name: "Organization" }, "work");
+  await auth.signOut("console", "work");
+  await assert.rejects(selecting, /was superseded/);
+  assert.equal(await auth.getConsoleSession("work"), undefined);
+});
+
+test("does not persist a local import that finishes after sign-out", async () => {
+  const secrets = new Secrets();
+  let release!: () => void;
+  let started!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const importStarted = new Promise<void>((resolve) => { started = resolve; });
+  const localImporter = { async readActiveSession() {
+    started();
+    await wait;
+    return {
+      mode: "console" as const, server: "https://example.test", accessToken: "access", refreshToken: "refresh",
+      expiresAt: Date.now() + 3600_000, accountId: "work", email: "work@example.com", orgs: [],
+    };
+  } };
+  const auth = new OpenCodeAuth(
+    secrets as never,
+    async () => Response.json([]),
+    Date.now,
+    undefined,
+    localImporter as never,
+  );
+  const importing = auth.importLocalConsoleSession(true, "work");
+  await importStarted;
+  await auth.signOut("console", "work");
+  release();
+  await assert.rejects(importing, /was superseded/);
   assert.equal(await auth.getConsoleSession("work"), undefined);
 });
 

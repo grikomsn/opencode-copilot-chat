@@ -72,6 +72,7 @@ export class OpenCodeAuth {
   private readonly refreshPromises = new Map<string, { identity: string; promise: Promise<ConsoleSession> }>();
   private readonly sessionMutations = new Map<string, Promise<void>>();
   private profileIndexMutation: Promise<void> = Promise.resolve();
+  private readonly profileGenerations = new Map<string, number>();
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -171,6 +172,7 @@ export class OpenCodeAuth {
     profile = DEFAULT_CONSOLE_PROFILE,
   ): Promise<ConsoleSession> {
     const normalized = normalizeConsoleProfile(profile);
+    const generation = this.beginSessionReplacement(normalized);
     let intervalMs = device.intervalMs;
     while (this.now() < device.expiresAt) {
       await this.sleep(intervalMs, signal);
@@ -215,7 +217,7 @@ export class OpenCodeAuth {
         orgs: normalizedOrgs,
         ...(normalizedOrgs[0] ? { orgId: normalizedOrgs[0].id, orgName: normalizedOrgs[0].name } : {}),
       };
-      await this.saveConsoleSession(session, normalized);
+      await this.saveConsoleSession(session, normalized, generation);
       return session;
     }
     throw new Error("OpenCode Console device code expired; start sign-in again");
@@ -223,12 +225,13 @@ export class OpenCodeAuth {
 
   async selectOrganization(org: ConsoleOrg, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
     const normalized = normalizeConsoleProfile(profile);
+    const generation = this.profileGeneration(normalized);
     const session = await this.getConsoleSession(normalized);
     if (!session) throw new Error("Sign in to OpenCode Console first");
     const match = session.orgs.find((item) => item.id === org.id);
     if (!match) throw new Error("That organization is not available to this Console account");
     const next = { ...session, orgId: match.id, orgName: match.name };
-    await this.saveConsoleSession(next, normalized);
+    await this.saveConsoleSession(next, normalized, generation);
   }
 
   async signOut(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
@@ -237,6 +240,7 @@ export class OpenCodeAuth {
       return;
     }
     const normalized = normalizeConsoleProfile(profile);
+    this.invalidateProfile(normalized);
     await this.mutateSession(normalized, async () => {
       await this.secrets.delete(consoleSessionKey(normalized));
       await this.secrets.store(consoleImportStateKey(normalized), "signed-out");
@@ -249,8 +253,13 @@ export class OpenCodeAuth {
     profile = DEFAULT_CONSOLE_PROFILE,
   ): Promise<ConsoleSession | undefined> {
     const normalized = normalizeConsoleProfile(profile);
+    const startingGeneration = this.profileGeneration(normalized);
     if (await this.getConsoleSession(normalized)) return undefined;
     if (!force && await this.secrets.get(consoleImportStateKey(normalized))) return undefined;
+    if (this.profileGeneration(normalized) !== startingGeneration) {
+      throw new Error(`OpenCode Console import for profile “${normalized}” was superseded`);
+    }
+    const generation = this.beginSessionReplacement(normalized);
     const imported = await this.localImporter.readActiveSession();
     if (!imported) return undefined;
     const current = imported.expiresAt > this.now() + 5 * 60_000
@@ -265,7 +274,7 @@ export class OpenCodeAuth {
       orgs,
       ...(org ? { orgId: org.id, orgName: org.name } : {}),
     };
-    await this.saveConsoleSession(hydrated, normalized);
+    await this.saveConsoleSession(hydrated, normalized, generation);
     await this.secrets.store(consoleImportStateKey(normalized), "imported");
     return hydrated;
   }
@@ -313,10 +322,15 @@ export class OpenCodeAuth {
         if (!accessToken) throw new Error("OpenCode Console token refresh returned no access token");
         const next = { ...session, accessToken, refreshToken, expiresAt: this.now() + positiveNumber(value.expires_in, 3600) * 1000 };
         if (persist) {
+          let persisted = false;
           await this.mutateSession(profile, async () => {
             const current = await this.getConsoleSession(profile);
-            if (current && consoleSessionIdentity(current) === identity) await this.storeConsoleSession(next, profile);
+            if (current && consoleSessionIdentity(current) === identity) {
+              await this.storeConsoleSession(next, profile);
+              persisted = true;
+            }
           });
+          if (!persisted) throw new Error(`OpenCode Console profile “${profile}” changed while its session was refreshing`);
         }
         return next;
       })().finally(() => {
@@ -326,9 +340,14 @@ export class OpenCodeAuth {
     return promise;
   }
 
-  private async saveConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
+  private async saveConsoleSession(session: ConsoleSession, profile: string, expectedGeneration: number): Promise<void> {
     const normalized = normalizeConsoleProfile(profile);
-    await this.mutateSession(normalized, () => this.storeConsoleSession(session, normalized));
+    await this.mutateSession(normalized, async () => {
+      if (this.profileGeneration(normalized) !== expectedGeneration) {
+        throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
+      }
+      await this.storeConsoleSession(session, normalized);
+    });
   }
 
   private async storeConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
@@ -365,6 +384,20 @@ export class OpenCodeAuth {
     });
     this.profileIndexMutation = current;
     await current;
+  }
+
+  private profileGeneration(profile: string): number {
+    return this.profileGenerations.get(profile) ?? 0;
+  }
+
+  private beginSessionReplacement(profile: string): number {
+    const generation = this.profileGeneration(profile) + 1;
+    this.profileGenerations.set(profile, generation);
+    return generation;
+  }
+
+  private invalidateProfile(profile: string): void {
+    this.profileGenerations.set(profile, this.profileGeneration(profile) + 1);
   }
 
   private async getJson(server: string, path: string, token: string): Promise<unknown> {
