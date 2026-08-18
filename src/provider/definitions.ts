@@ -4,7 +4,6 @@ export interface OpenCodeProviderDefinition {
   readonly mode: OpenCodeMode;
   readonly vendor: string;
   readonly displayName: string;
-  readonly managementCommand: string;
 }
 
 export const OPENCODE_PROVIDER_DEFINITIONS: Readonly<Record<OpenCodeMode, OpenCodeProviderDefinition>> = {
@@ -12,19 +11,16 @@ export const OPENCODE_PROVIDER_DEFINITIONS: Readonly<Record<OpenCodeMode, OpenCo
     mode: "zen",
     vendor: "opencodezen",
     displayName: "OpenCode Zen",
-    managementCommand: "opencodeCopilot.manageZen",
   },
   go: {
     mode: "go",
     vendor: "opencodego",
     displayName: "OpenCode Go",
-    managementCommand: "opencodeCopilot.manageGo",
   },
   console: {
     mode: "console",
     vendor: "opencodeconsole",
     displayName: "OpenCode Console",
-    managementCommand: "opencodeCopilot.manageConsole",
   },
 };
 

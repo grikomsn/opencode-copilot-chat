@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { randomUUID } from "node:crypto";
-import { OpenCodeAuth } from "./auth/auth";
+import { createHash, randomUUID } from "node:crypto";
+import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type Credential } from "./auth/auth";
 import { messageOf, responseError } from "./errors";
 import { catalogScope, ModelCatalog, type OpenCodeModel } from "./models/catalog";
 import { advertisedModelLimits, requestOutputLimit } from "./models/limits";
@@ -12,62 +12,85 @@ import { reportStreamEvent } from "./provider/response";
 import { buildFunctionTools, buildResponsesTools, originalToolName } from "./tools/client-tools";
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser } from "./transport/sse";
-import type { OpenCodeUsageSnapshot } from "./usage/domain";
-import { OpenCodeUsageStore } from "./usage/store";
+import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
   readonly rawModelId: string;
   readonly catalogId: string;
   readonly mode: OpenCodeMode;
+  readonly credentialId: string;
+  readonly profile?: string;
 }
 
 export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCodeModelInformation> {
   private readonly changeEmitter = new vscode.EventEmitter<void>();
-  private readonly catalog: ModelCatalog;
+  private readonly usageEmitter = new vscode.EventEmitter<{ scope: string; usage: OpenCodeUsageSnapshot }>();
+  private readonly catalogs = new Map<string, ModelCatalog>();
+  private readonly credentials = new Map<string, Credential>();
+  private readonly usageByScope = new Map<string, OpenCodeUsageSnapshot>();
+  private activeCredentialId = "legacy";
+  private activeProfile = DEFAULT_CONSOLE_PROFILE;
 
   readonly onDidChangeLanguageModelChatInformation = this.changeEmitter.event;
-  readonly onDidChangeUsage: vscode.Event<OpenCodeUsageSnapshot>;
+  readonly onDidChangeUsage = this.usageEmitter.event;
 
   constructor(
     private readonly auth: OpenCodeAuth,
     private readonly output: vscode.OutputChannel,
     private readonly userAgent: string,
     private readonly mode: OpenCodeMode,
-    catalog = new ModelCatalog(),
-    private readonly usageStore = new OpenCodeUsageStore(),
+    private readonly catalogFactory: () => ModelCatalog = () => new ModelCatalog(),
+    initialUsage: Readonly<Record<string, OpenCodeUsageSnapshot>> = {},
   ) {
-    this.catalog = catalog;
-    this.onDidChangeUsage = usageStore.onDidChange;
+    for (const [scope, usage] of Object.entries(initialUsage)) {
+      if (scope.startsWith(`${mode}:`)) this.usageByScope.set(scope, usage);
+    }
   }
 
   fireDidChange(): void { this.changeEmitter.fire(); }
-  getUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageStore.get(); }
-  clearUsage(): void { this.usageStore.clear(); }
+  getActiveScope(): string { return this.scopeFor(this.activeCredentialId); }
+  getActiveCredentialId(): string { return this.activeCredentialId; }
+  getActiveProfile(): string { return this.activeProfile; }
+  setActiveConsoleProfile(profile: string): void {
+    this.activeProfile = normalizeConsoleProfile(profile);
+    this.activeCredentialId = `profile-${this.activeProfile}`;
+    this.usageEmitter.fire({ scope: this.getActiveScope(), usage: this.getUsageSnapshot() });
+  }
+  getUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageByScope.get(this.getActiveScope()) ?? {}; }
+  getUsageSnapshots(): Readonly<Record<string, OpenCodeUsageSnapshot>> { return Object.fromEntries(this.usageByScope); }
+  clearUsage(): void { this.setUsageSnapshot(this.getActiveScope(), {}); }
 
   async refreshModels(): Promise<readonly OpenCodeModel[]> {
     const mode = this.mode;
-    const credential = await this.auth.getCredential(mode);
-    const models = await this.catalog.refresh(mode, credential, this.freeOnly());
+    const credential = this.credentials.get(this.activeCredentialId)
+      ?? await this.auth.getCredential(mode, false, this.activeProfile);
+    if (credential) this.credentials.set(this.activeCredentialId, credential);
+    const models = await this.catalogFor(this.activeCredentialId).refresh(mode, credential, this.freeOnly());
     this.changeEmitter.fire();
     return models;
   }
 
   async provideLanguageModelChatInformation(
-    _options: vscode.PrepareLanguageModelChatModelOptions,
+    options: vscode.PrepareLanguageModelChatModelOptions,
     token: vscode.CancellationToken,
   ): Promise<OpenCodeModelInformation[]> {
     if (token.isCancellationRequested) return [];
+    if (!options.configuration) return [];
     const mode = this.mode;
-    const credential = await this.auth.getCredential(mode);
+    const entry = await this.entryFromConfiguration(options.configuration);
+    if (!entry) return [];
+    const { credential, credentialId, profile } = entry;
+    this.credentials.set(credentialId, credential);
+    const catalog = this.catalogFor(credentialId);
     const maxAge = Math.max(1, vscode.workspace.getConfiguration("opencode").get<number>("catalogCacheMinutes", 5)) * 60_000;
-    if (!this.catalog.isFresh(mode, maxAge, catalogScope(mode, credential, this.freeOnly())) && (mode !== "console" || credential)) {
+    if (!catalog.isFresh(mode, maxAge, catalogScope(mode, credential, this.freeOnly()))) {
       const controller = new AbortController();
       const listener = token.onCancellationRequested(() => controller.abort());
-      try { await this.catalog.refreshSafely(mode, credential, this.freeOnly(), controller.signal); }
+      try { await catalog.refreshSafely(mode, credential, this.freeOnly(), controller.signal); }
       catch (error) { this.output.appendLine(`[models] ${messageOf(error)}`); }
       finally { listener.dispose(); }
     }
-    return this.catalog.list(mode).map((model) => this.toInformation(model, mode, Boolean(credential)));
+    return catalog.list(mode).map((model) => this.toInformation(model, mode, credentialId, profile));
   }
 
   async provideLanguageModelChatResponse(
@@ -78,9 +101,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     token: vscode.CancellationToken,
   ): Promise<void> {
     const mode = information.mode;
-    let credential = await this.auth.getCredential(mode);
-    if (!credential) throw new Error(`Sign in to OpenCode ${mode === "console" ? "Console" : mode === "go" ? "Go" : "Zen"} before using this model`);
-    const model = this.catalog.get(mode, information.catalogId) ?? this.catalog.list(mode).find((item) => item.rawModelId === information.rawModelId);
+    this.activeCredentialId = information.credentialId;
+    if (information.profile) this.activeProfile = information.profile;
+    let credential = this.credentials.get(information.credentialId);
+    if (!credential) throw new Error(`The credential for this OpenCode provider entry is unavailable. Update it in Manage Language Models.`);
+    const catalog = this.catalogFor(information.credentialId);
+    const model = catalog.get(mode, information.catalogId) ?? catalog.list(mode).find((item) => item.rawModelId === information.rawModelId);
     if (!model) throw new Error(`OpenCode model is no longer available: ${information.rawModelId}`);
     const converted = model.endpoint === "responses" ? [] : convertChatMessages(messages);
     const responsesInput = model.endpoint === "responses" ? convertResponsesMessages(messages) : [];
@@ -123,8 +149,9 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
           const response = await fetch(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), { method: "POST", headers, body: JSON.stringify(requestBody), signal: controller.signal });
           if (response.status === 401 && mode === "console" && !authRefreshed) {
             authRefreshed = true;
-            credential = await this.auth.getCredential(mode, true);
+            credential = await this.auth.getCredential(mode, true, information.profile ?? DEFAULT_CONSOLE_PROFILE);
             if (!credential) throw new Error("OpenCode credentials expired; sign in again");
+            this.credentials.set(information.credentialId, credential);
             continue;
           }
           if (!response.ok) {
@@ -157,14 +184,14 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
             for (const event of parser.push(decoder.decode(part.value, { stream: true }))) {
               sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
               const usage = reportStreamEvent(event, progress, model.rawModelId, (name) => originalToolName(name, options.tools));
-              if (usage) this.setUsage(usage);
+              if (usage) this.setUsage(usage, information.credentialId);
             }
             if (token.isCancellationRequested) return;
           }
           for (const event of parser.finish()) {
             sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
             const usage = reportStreamEvent(event, progress, model.rawModelId, (name) => originalToolName(name, options.tools));
-            if (usage) this.setUsage(usage);
+            if (usage) this.setUsage(usage, information.credentialId);
           }
           if (!sawOutput) throw new Error(`OpenCode returned no content for ${model.rawModelId}`);
           if (config.get<boolean>("debugLogging", false)) this.output.appendLine(`[response] mode=${mode} model=${model.rawModelId} completed=true`);
@@ -188,7 +215,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     return Math.max(0, Math.ceil(text.length / 4));
   }
 
-  private toInformation(model: OpenCodeModel, mode: OpenCodeMode, authenticated: boolean): OpenCodeModelInformation {
+  private toInformation(
+    model: OpenCodeModel,
+    mode: OpenCodeMode,
+    credentialId: string,
+    profile?: string,
+  ): OpenCodeModelInformation {
     const config = vscode.workspace.getConfiguration("opencode");
     const family = thinkingFamilyForModel(model);
     const defaultEffort = family ? configuredValue<ReasoningEffort>(config, `thinking.${family}`) : config.get<ReasoningEffort>("reasoningEffort", "high");
@@ -203,15 +235,56 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       capabilities: { imageInput: model.imageInput, toolCalling: model.toolCalling },
       ...(configurationSchema ? { configurationSchema } : {}),
       isUserSelectable: true,
-      ...(authenticated ? {} : { requiresAuthorization: { label: `Sign in to OpenCode ${mode}` } }),
+      isBYOK: true,
       rawModelId: model.rawModelId,
       catalogId: model.id,
       mode,
+      credentialId,
+      ...(profile ? { profile } : {}),
     };
   }
 
   private freeOnly(): boolean { return vscode.workspace.getConfiguration("opencode").get("freeOnly", true); }
-  private setUsage(usage: OpenCodeUsageSnapshot): void { this.usageStore.record(usage); }
+  private catalogFor(credentialId: string): ModelCatalog {
+    let catalog = this.catalogs.get(credentialId);
+    if (!catalog) {
+      catalog = this.catalogFactory();
+      this.catalogs.set(credentialId, catalog);
+    }
+    return catalog;
+  }
+
+  private async entryFromConfiguration(configuration: Readonly<Record<string, unknown>>): Promise<{
+    credential: Credential;
+    credentialId: string;
+    profile?: string;
+  } | undefined> {
+    if (this.mode === "console") {
+      const profile = normalizeConsoleProfile(typeof configuration.profile === "string"
+        ? configuration.profile
+        : DEFAULT_CONSOLE_PROFILE);
+      const credential = await this.auth.getCredential("console", false, profile);
+      return credential ? { credential, credentialId: `profile-${profile}`, profile } : undefined;
+    }
+    const apiKey = typeof configuration.apiKey === "string" ? configuration.apiKey.trim() : "";
+    if (!apiKey) return undefined;
+    return {
+      credential: { mode: this.mode, token: apiKey },
+      credentialId: `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`,
+    };
+  }
+
+  private scopeFor(credentialId: string): string { return `${this.mode}:${credentialId}`; }
+
+  private setUsage(usage: OpenCodeUsageSnapshot, credentialId: string): void {
+    const scope = this.scopeFor(credentialId);
+    this.setUsageSnapshot(scope, recordRequestUsage(this.usageByScope.get(scope) ?? {}, usage));
+  }
+
+  private setUsageSnapshot(scope: string, usage: OpenCodeUsageSnapshot): void {
+    this.usageByScope.set(scope, usage);
+    this.usageEmitter.fire({ scope, usage });
+  }
 }
 
 function configuredValue<T>(config: vscode.WorkspaceConfiguration, key: string): T | undefined {

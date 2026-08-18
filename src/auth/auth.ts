@@ -6,6 +6,24 @@ import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, type OpenCodeMode } from ".
 const API_KEYS_KEY = "opencode.apiKeys.v1";
 const CONSOLE_SESSION_KEY = "opencode.consoleSession.v1";
 const CONSOLE_IMPORT_STATE_KEY = "opencode.consoleImportState.v1";
+const CONSOLE_PROFILES_KEY = "opencode.consoleProfiles.v1";
+export const DEFAULT_CONSOLE_PROFILE = "default";
+
+export function normalizeConsoleProfile(value: string): string {
+  const profile = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(profile)) {
+    throw new Error("Profile IDs must start with a letter or number and use only letters, numbers, dots, underscores, or hyphens");
+  }
+  return profile;
+}
+
+function consoleSessionKey(profile: string): string {
+  return profile === DEFAULT_CONSOLE_PROFILE ? CONSOLE_SESSION_KEY : `${CONSOLE_SESSION_KEY}.${profile}`;
+}
+
+function consoleImportStateKey(profile: string): string {
+  return profile === DEFAULT_CONSOLE_PROFILE ? CONSOLE_IMPORT_STATE_KEY : `${CONSOLE_IMPORT_STATE_KEY}.${profile}`;
+}
 
 export interface ApiKeys {
   zen?: string;
@@ -51,7 +69,7 @@ type Fetcher = typeof fetch;
 type Sleeper = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 
 export class OpenCodeAuth {
-  private refreshPromise: Promise<ConsoleSession> | undefined;
+  private readonly refreshPromises = new Map<string, Promise<ConsoleSession>>();
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -87,21 +105,26 @@ export class OpenCodeAuth {
     await this.secrets.store(API_KEYS_KEY, JSON.stringify(keys));
   }
 
-  async hasCredential(mode: OpenCodeMode): Promise<boolean> {
-    if (mode === "console") return Boolean(await this.getConsoleSession());
+  async hasCredential(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<boolean> {
+    if (mode === "console") return Boolean(await this.getConsoleSession(profile));
     return Boolean((await this.getApiKeys())[mode]);
   }
 
-  async getCredential(mode: OpenCodeMode, forceRefresh = false): Promise<Credential | undefined> {
+  async getCredential(
+    mode: OpenCodeMode,
+    forceRefresh = false,
+    profile = DEFAULT_CONSOLE_PROFILE,
+  ): Promise<Credential | undefined> {
     if (mode !== "console") {
       const token = (await this.getApiKeys())[mode];
       return token ? { mode, token } : undefined;
     }
-    const session = await this.getConsoleSession();
+    const normalized = normalizeConsoleProfile(profile);
+    const session = await this.getConsoleSession(normalized);
     if (!session) return undefined;
     const current = !forceRefresh && session.expiresAt > this.now() + 5 * 60_000
       ? session
-      : await this.refreshConsoleSession(session);
+      : await this.refreshConsoleSession(session, normalized);
     return {
       mode,
       token: current.accessToken,
@@ -111,8 +134,8 @@ export class OpenCodeAuth {
     };
   }
 
-  async getConsoleSession(): Promise<ConsoleSession | undefined> {
-    const raw = await this.secrets.get(CONSOLE_SESSION_KEY);
+  async getConsoleSession(profile = DEFAULT_CONSOLE_PROFILE): Promise<ConsoleSession | undefined> {
+    const raw = await this.secrets.get(consoleSessionKey(normalizeConsoleProfile(profile)));
     return raw ? parseSession(raw) : undefined;
   }
 
@@ -140,7 +163,12 @@ export class OpenCodeAuth {
     };
   }
 
-  async completeDeviceSignIn(device: DeviceCode, signal?: AbortSignal): Promise<ConsoleSession> {
+  async completeDeviceSignIn(
+    device: DeviceCode,
+    signal?: AbortSignal,
+    profile = DEFAULT_CONSOLE_PROFILE,
+  ): Promise<ConsoleSession> {
+    const normalized = normalizeConsoleProfile(profile);
     let intervalMs = device.intervalMs;
     while (this.now() < device.expiresAt) {
       await this.sleep(intervalMs, signal);
@@ -185,38 +213,45 @@ export class OpenCodeAuth {
         orgs: normalizedOrgs,
         ...(normalizedOrgs[0] ? { orgId: normalizedOrgs[0].id, orgName: normalizedOrgs[0].name } : {}),
       };
-      await this.saveConsoleSession(session);
+      await this.saveConsoleSession(session, normalized);
       return session;
     }
     throw new Error("OpenCode Console device code expired; start sign-in again");
   }
 
-  async selectOrganization(org: ConsoleOrg): Promise<void> {
-    const session = await this.getConsoleSession();
+  async selectOrganization(org: ConsoleOrg, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
+    const normalized = normalizeConsoleProfile(profile);
+    const session = await this.getConsoleSession(normalized);
     if (!session) throw new Error("Sign in to OpenCode Console first");
     const match = session.orgs.find((item) => item.id === org.id);
     if (!match) throw new Error("That organization is not available to this Console account");
     const next = { ...session, orgId: match.id, orgName: match.name };
-    await this.saveConsoleSession(next);
+    await this.saveConsoleSession(next, normalized);
   }
 
-  async signOut(mode: OpenCodeMode): Promise<void> {
+  async signOut(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
     if (mode !== "console") {
       await this.clearApiKey(mode);
       return;
     }
-    await this.secrets.delete(CONSOLE_SESSION_KEY);
-    await this.secrets.store(CONSOLE_IMPORT_STATE_KEY, "signed-out");
+    const normalized = normalizeConsoleProfile(profile);
+    await this.secrets.delete(consoleSessionKey(normalized));
+    await this.secrets.store(consoleImportStateKey(normalized), "signed-out");
+    await this.writeConsoleProfileIndex((await this.listConsoleProfiles()).filter((value) => value !== normalized));
   }
 
-  async importLocalConsoleSession(force = false): Promise<ConsoleSession | undefined> {
-    if (await this.getConsoleSession()) return undefined;
-    if (!force && await this.secrets.get(CONSOLE_IMPORT_STATE_KEY)) return undefined;
+  async importLocalConsoleSession(
+    force = false,
+    profile = DEFAULT_CONSOLE_PROFILE,
+  ): Promise<ConsoleSession | undefined> {
+    const normalized = normalizeConsoleProfile(profile);
+    if (await this.getConsoleSession(normalized)) return undefined;
+    if (!force && await this.secrets.get(consoleImportStateKey(normalized))) return undefined;
     const imported = await this.localImporter.readActiveSession();
     if (!imported) return undefined;
     const current = imported.expiresAt > this.now() + 5 * 60_000
       ? imported
-      : await this.refreshConsoleSession(imported, false);
+      : await this.refreshConsoleSession(imported, normalized, false);
     const orgs = normalizeOrganizations(await this.getJson(current.server, "/api/orgs", current.accessToken) as unknown[]);
     const org = current.orgId
       ? orgs.find((item) => item.id === current.orgId)
@@ -226,14 +261,40 @@ export class OpenCodeAuth {
       orgs,
       ...(org ? { orgId: org.id, orgName: org.name } : {}),
     };
-    await this.saveConsoleSession(hydrated);
-    await this.secrets.store(CONSOLE_IMPORT_STATE_KEY, "imported");
+    await this.saveConsoleSession(hydrated, normalized);
+    await this.secrets.store(consoleImportStateKey(normalized), "imported");
     return hydrated;
   }
 
-  private async refreshConsoleSession(session: ConsoleSession, persist = true): Promise<ConsoleSession> {
-    if (!this.refreshPromise) {
-      this.refreshPromise = (async () => {
+  async listConsoleProfiles(): Promise<string[]> {
+    let candidates: string[] = [];
+    try {
+      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
+      if (Array.isArray(parsed)) candidates = parsed.filter((value): value is string => typeof value === "string");
+    } catch {
+      // A corrupt index is rebuilt from the legacy default session.
+    }
+    candidates.push(DEFAULT_CONSOLE_PROFILE);
+    const profiles: string[] = [];
+    for (const candidate of candidates) {
+      try {
+        const profile = normalizeConsoleProfile(candidate);
+        if (!profiles.includes(profile) && await this.getConsoleSession(profile)) profiles.push(profile);
+      } catch {
+        // Invalid index entries are ignored.
+      }
+    }
+    return profiles.sort();
+  }
+
+  private async refreshConsoleSession(
+    session: ConsoleSession,
+    profile: string,
+    persist = true,
+  ): Promise<ConsoleSession> {
+    let refreshPromise = this.refreshPromises.get(profile);
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
         const response = await this.fetcher(`${session.server}/auth/device/token`, {
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -245,16 +306,23 @@ export class OpenCodeAuth {
         const refreshToken = string(value.refresh_token) ?? session.refreshToken;
         if (!accessToken) throw new Error("OpenCode Console token refresh returned no access token");
         const next = { ...session, accessToken, refreshToken, expiresAt: this.now() + positiveNumber(value.expires_in, 3600) * 1000 };
-        if (persist) await this.saveConsoleSession(next);
+        if (persist) await this.saveConsoleSession(next, profile);
         return next;
-      })().finally(() => { this.refreshPromise = undefined; });
+      })().finally(() => { this.refreshPromises.delete(profile); });
+      this.refreshPromises.set(profile, refreshPromise);
     }
-    return this.refreshPromise;
+    return refreshPromise;
   }
 
-  private async saveConsoleSession(session: ConsoleSession): Promise<void> {
-    await this.secrets.store(CONSOLE_SESSION_KEY, JSON.stringify(session));
-    await this.secrets.store(CONSOLE_IMPORT_STATE_KEY, "managed");
+  private async saveConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
+    await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
+    await this.secrets.store(consoleImportStateKey(profile), "managed");
+    const profiles = await this.listConsoleProfiles();
+    if (!profiles.includes(profile)) await this.writeConsoleProfileIndex([...profiles, profile]);
+  }
+
+  private async writeConsoleProfileIndex(profiles: readonly string[]): Promise<void> {
+    await this.secrets.store(CONSOLE_PROFILES_KEY, JSON.stringify([...new Set(profiles)].sort()));
   }
 
   private async getJson(server: string, path: string, token: string): Promise<unknown> {

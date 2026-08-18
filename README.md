@@ -24,15 +24,16 @@ This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console a
 - Streaming text, reasoning, image inputs, and agent-mode tool calls
 - Model-specific Thinking Effort and Qwen thinking-budget controls
 - Bounded gateway retries and context-aware token limits
-- Shared status-bar inference-token tracking and secret-safe diagnostics
+- Provider-entry-scoped inference-token tracking and secret-safe diagnostics
 
 ## Quick start
 
 1. Install [OpenCode for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat). You need VS Code 1.125 or newer and GitHub Copilot Chat.
-2. Run **OpenCode: Manage Connection**, choose Zen, Go, or Console, then enter an API key or complete Console sign-in.
-3. Open Copilot Chat, select **Manage Models**, enable the connected OpenCode group, and choose a model.
+2. For Zen or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its API key.
+3. For Console, run **OpenCode: Add Console Account**, choose a profile ID, then add an OpenCode Console entry with the same ID in **Manage Language Models**.
+4. Repeat either flow for another account or key, then enable the models you want in Copilot Chat.
 
-Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Zen and Go use their authenticated live catalogs, while Console shows only models enabled for the selected organization. Click the OpenCode status-bar item to inspect tokens across all three groups and manage the active connection.
+Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Zen and Go use each entry's authenticated live catalog, while Console shows only models enabled for that profile's selected organization. Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
 
 ## Documentation
 
