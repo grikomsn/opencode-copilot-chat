@@ -92,6 +92,37 @@ test("refreshes named Console sessions with isolated locks", async () => {
   assert.equal(refreshes, 2);
 });
 
+test("preserves organization selection made during token refresh", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1.work", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "old", refreshToken: "refresh",
+    expiresAt: 0, accountId: "work", email: "work@example.com",
+    orgs: [{ id: "org-1", name: "Alpha" }, { id: "org-2", name: "Beta" }],
+    orgId: "org-1", orgName: "Alpha",
+  }));
+  let refreshStarted!: () => void;
+  let releaseRefresh!: () => void;
+  const started = new Promise<void>((resolve) => { refreshStarted = resolve; });
+  const wait = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+  const auth = new OpenCodeAuth(secrets as never, async () => {
+    refreshStarted();
+    await wait;
+    return Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600 });
+  }, () => 1_000);
+
+  const refreshing = auth.getCredential("console", false, "work");
+  await started;
+  await auth.selectOrganization({ id: "org-2", name: "Beta" }, "work");
+  releaseRefresh();
+  await refreshing;
+
+  const session = await auth.getConsoleSession("work");
+  assert.equal(session?.accessToken, "new");
+  assert.equal(session?.refreshToken, "rotated");
+  assert.equal(session?.orgId, "org-2");
+  assert.equal(session?.orgName, "Beta");
+});
+
 test("serializes concurrent Console profile-index updates", async () => {
   const secrets = new Secrets(true);
   let account = 0;

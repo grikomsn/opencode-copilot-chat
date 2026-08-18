@@ -226,12 +226,19 @@ export class OpenCodeAuth {
   async selectOrganization(org: ConsoleOrg, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
     const normalized = normalizeConsoleProfile(profile);
     const generation = this.profileGeneration(normalized);
-    const session = await this.getConsoleSession(normalized);
-    if (!session) throw new Error("Sign in to OpenCode Console first");
-    const match = session.orgs.find((item) => item.id === org.id);
-    if (!match) throw new Error("That organization is not available to this Console account");
-    const next = { ...session, orgId: match.id, orgName: match.name };
-    await this.saveConsoleSession(next, normalized, generation);
+    await this.mutateSession(normalized, async () => {
+      if (this.profileGeneration(normalized) !== generation) {
+        throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
+      }
+      const session = await this.getConsoleSession(normalized);
+      if (!session) throw new Error("Sign in to OpenCode Console first");
+      const match = session.orgs.find((item) => item.id === org.id);
+      if (!match) throw new Error("That organization is not available to this Console account");
+      await this.storeConsoleSession({ ...session, orgId: match.id, orgName: match.name }, normalized);
+      if (this.profileGeneration(normalized) !== generation) {
+        throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
+      }
+    });
   }
 
   async signOut(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
@@ -306,6 +313,7 @@ export class OpenCodeAuth {
     persist = true,
   ): Promise<ConsoleSession> {
     const identity = consoleSessionIdentity(session);
+    const generation = this.profileGeneration(profile);
     const existing = this.refreshPromises.get(profile);
     if (existing?.identity === identity) return existing.promise;
     let promise: Promise<ConsoleSession>;
@@ -320,14 +328,16 @@ export class OpenCodeAuth {
         const accessToken = string(value.access_token);
         const refreshToken = string(value.refresh_token) ?? session.refreshToken;
         if (!accessToken) throw new Error("OpenCode Console token refresh returned no access token");
-        const next = { ...session, accessToken, refreshToken, expiresAt: this.now() + positiveNumber(value.expires_in, 3600) * 1000 };
+        const expiresAt = this.now() + positiveNumber(value.expires_in, 3600) * 1000;
+        let next = { ...session, accessToken, refreshToken, expiresAt };
         if (persist) {
           let persisted = false;
           await this.mutateSession(profile, async () => {
             const current = await this.getConsoleSession(profile);
-            if (current && consoleSessionIdentity(current) === identity) {
+            if (this.profileGeneration(profile) === generation && current && consoleSessionIdentity(current) === identity) {
+              next = { ...current, accessToken, refreshToken, expiresAt };
               await this.storeConsoleSession(next, profile);
-              persisted = true;
+              persisted = this.profileGeneration(profile) === generation;
             }
           });
           if (!persisted) throw new Error(`OpenCode Console profile “${profile}” changed while its session was refreshing`);
@@ -347,6 +357,9 @@ export class OpenCodeAuth {
         throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
       }
       await this.storeConsoleSession(session, normalized);
+      if (this.profileGeneration(normalized) !== expectedGeneration) {
+        throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
+      }
     });
   }
 
