@@ -1,7 +1,7 @@
 {
   "name": "opencode-bridge-copilot-chat",
   "displayName": "OpenCode for Copilot Chat",
-  "description": "Use OpenCode Zen, OpenCode Go, and OpenCode Console models in GitHub Copilot Chat.",
+  "description": "Use OpenCode Zen, Go, and Console models in GitHub Copilot Chat.",
   "version": "0.3.0",
   "publisher": "grikomsn",
   "license": "MIT",
@@ -28,7 +28,11 @@
     "opencode-go",
     "console",
     "copilot",
-    "language-model"
+    "copilot-chat",
+    "language-model",
+    "api-key",
+    "reasoning",
+    "vision"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -87,6 +91,11 @@
             "console"
           ],
           "default": "zen",
+          "enumDescriptions": [
+            "Target OpenCode Zen for generic connection, refresh, and test commands",
+            "Target OpenCode Go for generic connection, refresh, and test commands",
+            "Target OpenCode Console for generic connection, refresh, and test commands"
+          ],
           "description": "OpenCode group targeted by generic connection, refresh, and test commands. Zen, Go, and Console models remain visible as separate provider groups."
         },
         "opencode.freeOnly": {
@@ -108,6 +117,17 @@
             "max"
           ],
           "default": "high",
+          "enumDescriptions": [
+            "Disable optional thinking when supported",
+            "Enable thinking with the provider default",
+            "Let the model choose how much to think",
+            "Use minimal reasoning for faster responses",
+            "Use lighter reasoning for faster responses",
+            "Balance response speed and reasoning depth",
+            "Use greater reasoning depth for complex tasks",
+            "Use extra-high reasoning effort when supported",
+            "Use the maximum reasoning effort when supported"
+          ],
           "description": "Legacy fallback thinking mode. Per-family opencode.thinking settings and per-model composer selections take precedence."
         },
         "opencode.thinking.deepseek": {
@@ -120,17 +140,31 @@
             "max"
           ],
           "default": "high",
+          "enumDescriptions": [
+            "Disable optional DeepSeek thinking",
+            "Use light DeepSeek thinking",
+            "Use balanced DeepSeek thinking",
+            "Use greater DeepSeek thinking depth",
+            "Use maximum DeepSeek thinking depth"
+          ],
           "description": "Default thinking effort for DeepSeek models when no per-model composer selection is set."
         },
         "opencode.thinking.glm": {
           "type": "string",
           "enum": [
             "off",
+            "on",
             "high",
             "max"
           ],
           "default": "high",
-          "description": "Default thinking effort for GLM models when no per-model composer selection is set."
+          "enumDescriptions": [
+            "Disable optional GLM thinking",
+            "Enable thinking with the provider default",
+            "Use high GLM reasoning effort when supported",
+            "Use maximum GLM reasoning effort when supported"
+          ],
+          "description": "Default thinking mode or effort for GLM models when no per-model composer selection is set."
         },
         "opencode.thinking.kimi": {
           "type": "string",
@@ -139,6 +173,10 @@
             "off"
           ],
           "default": "on",
+          "enumDescriptions": [
+            "Enable Kimi thinking",
+            "Disable optional Kimi thinking"
+          ],
           "description": "Default thinking mode for Kimi models when no per-model composer selection is set."
         },
         "opencode.thinking.minimax": {
@@ -148,6 +186,10 @@
             "on"
           ],
           "default": "on",
+          "enumDescriptions": [
+            "Disable optional MiniMax thinking",
+            "Enable MiniMax thinking"
+          ],
           "description": "Default thinking mode for MiniMax models when no per-model composer selection is set."
         },
         "opencode.thinking.openai": {
@@ -160,6 +202,13 @@
             "xhigh"
           ],
           "default": "high",
+          "enumDescriptions": [
+            "Disable optional OpenAI reasoning",
+            "Use light OpenAI reasoning",
+            "Use balanced OpenAI reasoning",
+            "Use greater OpenAI reasoning depth",
+            "Use extra-high OpenAI reasoning effort"
+          ],
           "description": "Default reasoning effort for OpenAI models when no per-model composer selection is set."
         },
         "opencode.thinking.mimo": {
@@ -171,6 +220,12 @@
             "high"
           ],
           "default": "high",
+          "enumDescriptions": [
+            "Disable optional MiMo thinking",
+            "Use light MiMo thinking",
+            "Use balanced MiMo thinking",
+            "Use greater MiMo thinking depth"
+          ],
           "description": "Default thinking effort for MiMo models when no per-model composer selection is set."
         },
         "opencode.thinking.qwen": {
@@ -181,6 +236,11 @@
             "off"
           ],
           "default": "auto",
+          "enumDescriptions": [
+            "Let Qwen choose whether to think",
+            "Enable Qwen thinking",
+            "Disable optional Qwen thinking"
+          ],
           "description": "Default thinking mode for Qwen models when no per-model composer selection is set."
         },
         "opencode.thinking.qwenBudget": {
@@ -193,6 +253,13 @@
             "81920"
           ],
           "default": "auto",
+          "enumDescriptions": [
+            "Use the provider default thinking budget",
+            "Allow up to 4,096 thinking tokens",
+            "Allow up to 16,384 thinking tokens",
+            "Allow up to 32,768 thinking tokens",
+            "Allow up to 81,920 thinking tokens"
+          ],
           "description": "Default Qwen thinking budget. Auto omits the budget so the provider chooses it."
         },
         "opencode.maxOutputTokens": {
