@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+### Patch Changes
+
+- 60723d4: Serialize tool-only Chat Completions messages with provider-compatible empty content instead of `null`.
+
 ## 0.4.0
 
 ### Minor Changes
