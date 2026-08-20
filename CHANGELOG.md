@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- 7a43924: Support multiple native Zen and Go API-key entries plus isolated named OpenCode Console OAuth profiles, catalogs, refresh state, organizations, and usage snapshots.
+
 ## 0.3.1
 
 ### Patch Changes
