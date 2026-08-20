@@ -2,7 +2,7 @@
   "name": "opencode-bridge-copilot-chat",
   "displayName": "OpenCode for Copilot Chat",
   "description": "Use OpenCode Zen, Go, and Console models in GitHub Copilot Chat.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "grikomsn",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -312,7 +312,9 @@
         "displayName": "OpenCode Zen",
         "configuration": {
           "type": "object",
-          "required": ["apiKey"],
+          "required": [
+            "apiKey"
+          ],
           "properties": {
             "apiKey": {
               "type": "string",
@@ -328,7 +330,9 @@
         "displayName": "OpenCode Go",
         "configuration": {
           "type": "object",
-          "required": ["apiKey"],
+          "required": [
+            "apiKey"
+          ],
           "properties": {
             "apiKey": {
               "type": "string",
@@ -344,7 +348,9 @@
         "displayName": "OpenCode Console",
         "configuration": {
           "type": "object",
-          "required": ["profile"],
+          "required": [
+            "profile"
+          ],
           "properties": {
             "profile": {
               "type": "string",
