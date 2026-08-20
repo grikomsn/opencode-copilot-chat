@@ -1,16 +1,13 @@
 import * as vscode from "vscode";
+import { chatContent, type ChatContent, type ContentPart } from "./content";
+
+export type { ChatContent, ContentPart } from "./content";
 
 const MAX_INLINE_IMAGE_BYTES = 3_750_000;
 
-export interface ContentPart {
-  type: "text" | "image_url";
-  text?: string;
-  image_url?: { url: string };
-}
-
 export interface ChatMessage {
   role: "user" | "assistant" | "tool";
-  content: string | ContentPart[] | null;
+  content: ChatContent;
   tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
   tool_call_id?: string;
   reasoning_content?: string;
@@ -47,9 +44,7 @@ export function convertChatMessages(messages: readonly vscode.LanguageModelChatR
       }
     }
     const value = text.join("\n");
-    const content: string | ContentPart[] | null = images.length
-      ? [...(value ? [{ type: "text" as const, text: value }] : []), ...images]
-      : value || null;
+    const content = chatContent(value, images);
     const current: ChatMessage = {
       role,
       content,
