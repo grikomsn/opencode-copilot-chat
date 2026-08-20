@@ -8,37 +8,49 @@ import { ModelsDevMetadata } from "./models/metadata";
 import { OPENCODE_PROVIDER_DEFINITIONS } from "./provider/definitions";
 import { formatUsageStatus, formatUsageTooltip } from "./usage/presentation";
 import type { OpenCodeUsageSnapshot } from "./usage/domain";
-import { OpenCodeUsageStore } from "./usage/store";
 
-const USAGE_STATE_KEY = "opencode.usageSnapshot.v1";
+const LEGACY_USAGE_STATE_KEY = "opencode.usageSnapshot.v1";
+const USAGE_STATE_KEY = "opencode.usageSnapshots.v2";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("OpenCode");
   const auth = new OpenCodeAuth(context.secrets);
   const version = context.extension.packageJSON.version as string;
   const userAgent = `opencode-copilot-chat/${version} VSCode/${vscode.version}`;
-  const initialUsage = context.globalState.get<OpenCodeUsageSnapshot>(USAGE_STATE_KEY) ?? {};
-  const usageStore = new OpenCodeUsageStore(initialUsage);
+  const initialUsage = context.globalState.get<Readonly<Record<string, OpenCodeUsageSnapshot>>>(USAGE_STATE_KEY)
+    ?? { "zen:legacy": context.globalState.get<OpenCodeUsageSnapshot>(LEGACY_USAGE_STATE_KEY) ?? {} };
   const metadata = new ModelsDevMetadata(context.globalState);
-  const catalog = new ModelCatalog(fetch, context.globalState, metadata);
   const providers = Object.fromEntries(Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) => [
     definition.mode,
-    new OpenCodeProvider(auth, output, userAgent, definition.mode, catalog, usageStore),
+    new OpenCodeProvider(
+      auth,
+      output,
+      userAgent,
+      definition.mode,
+      () => new ModelCatalog(fetch, context.globalState, metadata),
+      initialUsage,
+    ),
   ])) as Record<keyof typeof OPENCODE_PROVIDER_DEFINITIONS, OpenCodeProvider>;
   const usageStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
   usageStatus.name = "OpenCode usage";
   usageStatus.command = "opencodeCopilot.showUsage";
-  renderUsageStatus(usageStatus, initialUsage);
+  renderUsageStatus(usageStatus, providers.zen.getUsageSnapshot());
   updateUsageStatusVisibility(usageStatus);
+  let activeUsageProvider = providers.zen;
   context.subscriptions.push(
     output,
     usageStatus,
-    usageStore,
-    usageStore.onDidChange((usage) => {
-      renderUsageStatus(usageStatus, usage);
+    ...Object.values(providers).map((provider) => provider.onDidChangeUsage(({ scope, usage }) => {
+      if (scope === provider.getActiveScope()) {
+        activeUsageProvider = provider;
+        renderUsageStatus(usageStatus, usage);
+      }
       updateUsageStatusVisibility(usageStatus);
-      void context.globalState.update(USAGE_STATE_KEY, usage);
-    }),
+      void context.globalState.update(USAGE_STATE_KEY, Object.assign(
+        {},
+        ...Object.values(providers).map((item) => item.getUsageSnapshots()),
+      ));
+    })),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("opencode.freeOnly")) providers.zen.fireDidChange();
       if (event.affectsConfiguration("opencode.reasoningEffort")
@@ -51,7 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     ...Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) =>
       vscode.lm.registerLanguageModelChatProvider(definition.vendor, providers[definition.mode])),
-    ...registerCommands(auth, providers, output),
+    ...registerCommands(auth, providers, output, () => activeUsageProvider),
   );
   output.appendLine(`[activate] OpenCode for Copilot Chat ${version} on VS Code ${vscode.version}`);
   void auth.importLocalConsoleSession().then((session) => {

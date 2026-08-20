@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OpenCodeAuth, type ConsoleOrg } from "../auth/auth";
+import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type ConsoleOrg } from "../auth/auth";
 import { messageOf } from "../errors";
 import { OpenCodeProvider } from "../provider";
 import { OPENCODE_PROVIDER_DEFINITIONS } from "../provider/definitions";
@@ -8,16 +8,23 @@ import { formatUsageRows, type UsageDisplayRow } from "../usage/presentation";
 
 export type OpenCodeProviders = Readonly<Record<OpenCodeMode, OpenCodeProvider>>;
 
-export function registerCommands(auth: OpenCodeAuth, providers: OpenCodeProviders, output: vscode.OutputChannel): vscode.Disposable[] {
+export function registerCommands(
+  auth: OpenCodeAuth,
+  providers: OpenCodeProviders,
+  output: vscode.OutputChannel,
+  usageProvider: () => OpenCodeProvider = () => providers[currentMode()],
+): vscode.Disposable[] {
   return [
     vscode.commands.registerCommand("opencodeCopilot.manage", () => manage(auth, providers, output)),
     vscode.commands.registerCommand("opencodeCopilot.manageZen", () => manage(auth, providers, output, "zen")),
     vscode.commands.registerCommand("opencodeCopilot.manageGo", () => manage(auth, providers, output, "go")),
     vscode.commands.registerCommand("opencodeCopilot.manageConsole", () => manage(auth, providers, output, "console")),
     vscode.commands.registerCommand("opencodeCopilot.importConsoleSession", () => importConsoleSession(auth, providers.console, output)),
+    vscode.commands.registerCommand("opencodeCopilot.addConsoleAccount", () => addConsoleAccount(auth, providers.console, output)),
+    vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
     vscode.commands.registerCommand("opencodeCopilot.refreshModels", () => refreshModels(providers[currentMode()])),
     vscode.commands.registerCommand("opencodeCopilot.testConnection", () => testConnection(providers[currentMode()], currentMode(), output)),
-    vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(providers[currentMode()])),
+    vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(usageProvider())),
     vscode.commands.registerCommand("opencodeCopilot.diagnostics", () => diagnostics(auth, providers)),
   ];
 }
@@ -25,13 +32,15 @@ export function registerCommands(auth: OpenCodeAuth, providers: OpenCodeProvider
 async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: vscode.OutputChannel, requestedMode?: OpenCodeMode): Promise<void> {
   const mode = requestedMode ?? currentMode();
   const provider = providers[mode];
-  const signedIn = await auth.hasCredential(mode);
+  const profile = mode === "console" ? provider.getActiveProfile() : DEFAULT_CONSOLE_PROFILE;
+  const signedIn = await auth.hasCredential(mode, profile);
   const choices = signedIn
     ? [
         { label: `$(pulse) Show ${label(mode)} usage`, action: "usage" },
         { label: `$(check) Test ${label(mode)} inference`, action: "test" },
         { label: `$(refresh) Refresh ${label(mode)} models`, action: "refresh" },
         ...(mode === "console" ? [{ label: "$(organization) Switch Console organization", action: "org" }] : []),
+        ...(mode === "console" ? [{ label: "$(account) Switch Console profile", action: "profile" }, { label: "$(add) Add Console account", action: "addConsole" }] : []),
         { label: "$(key) Add or switch OpenCode credential", action: "switch" },
         { label: "$(sign-out) Sign out", action: "signout" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
@@ -40,20 +49,24 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: "$(key) Sign in with OpenCode Zen API key", action: "zen" },
         { label: "$(key) Sign in with OpenCode Go API key", action: "go" },
         { label: "$(device-mobile) Sign in with OpenCode Console device code", action: "console" },
+        { label: "$(add) Add named Console account", action: "addConsole" },
+        { label: "$(account) Switch Console profile", action: "profile" },
         { label: "$(database) Import Console session from local OpenCode", action: "importConsole" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
       ];
-  const picked = await vscode.window.showQuickPick(choices, { title: `OpenCode — ${signedIn ? `${label(mode)} connected` : "not connected"}` });
+  const picked = await vscode.window.showQuickPick(choices, { title: `OpenCode — ${signedIn ? `${label(mode)} connected` : "not connected"}${mode === "console" ? ` [${profile}]` : ""}` });
   if (!picked) return;
   if (picked.action === "logs") output.show(true);
-  else if (picked.action === "usage") await showUsage(provider);
+  else if (picked.action === "usage") await showUsage(provider, true);
   else if (picked.action === "test") await testConnection(provider, mode, output);
   else if (picked.action === "refresh") await refreshModels(provider);
-  else if (picked.action === "org") await switchOrganization(auth, provider, output);
-  else if (picked.action === "signout") await signOut(auth, provider, mode);
+  else if (picked.action === "org") await switchOrganization(auth, provider, output, profile);
+  else if (picked.action === "profile") await selectConsoleProfile(auth, providers.console);
+  else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
+  else if (picked.action === "signout") await signOut(auth, provider, mode, profile);
   else if (picked.action === "switch") await chooseModeAndSignIn(auth, providers, output);
   else if (picked.action === "zen" || picked.action === "go") await signInWithApiKey(auth, providers[picked.action], picked.action);
-  else if (picked.action === "console") await signInWithConsole(auth, providers.console, output);
+  else if (picked.action === "console") await signInWithConsole(auth, providers.console, output, profile);
   else if (picked.action === "importConsole") await importConsoleSession(auth, providers.console, output);
 }
 
@@ -78,6 +91,7 @@ async function importConsoleSession(auth: OpenCodeAuth, provider: OpenCodeProvid
       return;
     }
     await setMode("console");
+    provider.setActiveConsoleProfile(DEFAULT_CONSOLE_PROFILE);
     const models = await provider.refreshModels();
     vscode.window.showInformationMessage(`Imported OpenCode Console into VS Code${session.orgName ? ` for ${session.orgName}` : ""}. Found ${models.length} allowed models.`);
   } catch (error) {
@@ -105,7 +119,12 @@ async function signInWithApiKey(auth: OpenCodeAuth, provider: OpenCodeProvider, 
   }
 }
 
-async function signInWithConsole(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
+async function signInWithConsole(
+  auth: OpenCodeAuth,
+  provider: OpenCodeProvider,
+  output: vscode.OutputChannel,
+  profile = DEFAULT_CONSOLE_PROFILE,
+): Promise<void> {
   let device: Awaited<ReturnType<OpenCodeAuth["requestDeviceCode"]>> | undefined;
   try {
     device = await auth.requestDeviceCode();
@@ -118,35 +137,80 @@ async function signInWithConsole(auth: OpenCodeAuth, provider: OpenCodeProvider,
       async (_progress, cancellation) => {
         const controller = new AbortController();
         const listener = cancellation.onCancellationRequested(() => controller.abort());
-        try { await auth.completeDeviceSignIn(device!, controller.signal); }
+        try { await auth.completeDeviceSignIn(device!, controller.signal, profile); }
         finally { listener.dispose(); }
       },
     );
-    const session = await auth.getConsoleSession();
+    const session = await auth.getConsoleSession(profile);
     if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
-    await chooseOrganization(auth, session.orgs);
+    await chooseOrganization(auth, session.orgs, profile);
     await setMode("console");
+    provider.setActiveConsoleProfile(profile);
     const models = await provider.refreshModels();
-    const selected = await auth.getConsoleSession();
-    vscode.window.showInformationMessage(`OpenCode Console connected${selected?.orgName ? ` to ${selected.orgName}` : ""}. Found ${models.length} allowed models.`);
+    const selected = await auth.getConsoleSession(profile);
+    vscode.window.showInformationMessage(`OpenCode Console profile “${profile}” connected${selected?.orgName ? ` to ${selected.orgName}` : ""}. Found ${models.length} allowed models.`);
   } catch (error) {
     output.appendLine(`[console] ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode Console sign-in failed: ${messageOf(error)}`);
   }
 }
 
-async function chooseOrganization(auth: OpenCodeAuth, orgs: readonly ConsoleOrg[]): Promise<void> {
+async function addConsoleAccount(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
+  const value = await vscode.window.showInputBox({
+    title: "Add OpenCode Console account",
+    prompt: "Choose the profile ID you will enter when adding OpenCode Console in Manage Language Models.",
+    placeHolder: "personal or work",
+    ignoreFocusOut: true,
+    validateInput: (input) => {
+      try { normalizeConsoleProfile(input); return undefined; } catch (error) { return messageOf(error); }
+    },
+  });
+  if (!value) return;
+  const profile = normalizeConsoleProfile(value);
+  if (await auth.hasCredential("console", profile)) {
+    const replace = await vscode.window.showWarningMessage(
+      `Replace the OpenCode Console session stored for profile “${profile}”?`,
+      { modal: true },
+      "Replace",
+    );
+    if (replace !== "Replace") return;
+  }
+  await signInWithConsole(auth, provider, output, profile);
+  if (await auth.hasCredential("console", profile)) {
+    vscode.window.showInformationMessage(`Add OpenCode Console in Manage Language Models and enter profile “${profile}”.`);
+  }
+}
+
+async function selectConsoleProfile(auth: OpenCodeAuth, provider: OpenCodeProvider): Promise<void> {
+  const profiles = await auth.listConsoleProfiles();
+  if (!profiles.length) {
+    vscode.window.showInformationMessage("No OpenCode Console profiles are signed in yet.");
+    return;
+  }
+  const picked = await vscode.window.showQuickPick(
+    await Promise.all(profiles.map(async (profile) => {
+      const session = await auth.getConsoleSession(profile);
+      return { label: profile, description: session?.email ?? "Signed in", detail: session?.orgName, profile };
+    })),
+    { title: "Select the active OpenCode Console profile" },
+  );
+  if (!picked) return;
+  provider.setActiveConsoleProfile(picked.profile);
+  vscode.window.showInformationMessage(`OpenCode Console profile “${picked.profile}” is now active for usage and management commands.`);
+}
+
+async function chooseOrganization(auth: OpenCodeAuth, orgs: readonly ConsoleOrg[], profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
   if (orgs.length === 0) return;
   const picked = await vscode.window.showQuickPick(orgs.map((org) => ({ label: org.name, description: org.id, org })), { title: "Choose the OpenCode Console organization" });
   if (!picked) throw new Error("OpenCode Console organization selection was cancelled");
-  await auth.selectOrganization(picked.org);
+  await auth.selectOrganization(picked.org, profile);
 }
 
-async function switchOrganization(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
+async function switchOrganization(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
   try {
-    const session = await auth.getConsoleSession();
+    const session = await auth.getConsoleSession(profile);
     if (!session) throw new Error("Sign in to OpenCode Console first");
-    await chooseOrganization(auth, session.orgs);
+    await chooseOrganization(auth, session.orgs, profile);
     const models = await provider.refreshModels();
     vscode.window.showInformationMessage(`OpenCode Console organization updated. Found ${models.length} allowed models.`);
   } catch (error) {
@@ -155,11 +219,12 @@ async function switchOrganization(auth: OpenCodeAuth, provider: OpenCodeProvider
   }
 }
 
-async function signOut(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: OpenCodeMode): Promise<void> {
-  await auth.signOut(mode);
+async function signOut(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
+  await auth.signOut(mode, profile);
+  if (mode === "console") provider.invalidateConsoleProfile(profile);
   provider.clearUsage();
   provider.fireDidChange();
-  vscode.window.showInformationMessage(`Signed out of OpenCode ${label(mode)}.`);
+  vscode.window.showInformationMessage(`Signed out of OpenCode ${label(mode)}${mode === "console" ? ` profile “${profile}”` : ""}.`);
 }
 
 async function refreshModels(provider: OpenCodeProvider): Promise<void> {
@@ -173,28 +238,9 @@ async function refreshModels(provider: OpenCodeProvider): Promise<void> {
 
 async function testConnection(provider: OpenCodeProvider, mode: OpenCodeMode, output: vscode.OutputChannel): Promise<void> {
   try {
-    await provider.refreshModels();
-    const models = await vscode.lm.selectChatModels({ vendor: OPENCODE_PROVIDER_DEFINITIONS[mode].vendor });
-    const model = models[0];
-    if (!model) throw new Error(`OpenCode ${label(mode)} registered no usable models`);
-    const cancellation = new vscode.CancellationTokenSource();
-    let text = "";
-    try {
-      const response = await model.sendRequest(
-        [vscode.LanguageModelChatMessage.User("Reply with OK.")],
-        { justification: "Verify the configured OpenCode provider connection" },
-        cancellation.token,
-      );
-      for await (const chunk of response.text) {
-        text += chunk;
-        if (text.length >= 80) break;
-      }
-    } finally {
-      cancellation.dispose();
-    }
-    if (!text.trim()) throw new Error(`${model.name} returned no text`);
-    output.appendLine(`[test] mode=${mode} model=${model.id} responseLength=${String(text.length)}`);
-    vscode.window.showInformationMessage(`OpenCode ${label(mode)} inference verified with ${model.name}: ${text.trim().slice(0, 80)}`);
+    const result = await provider.testConnection();
+    output.appendLine(`[test] mode=${mode} model=${result.model} responseLength=${String(result.text.length)}`);
+    vscode.window.showInformationMessage(`OpenCode ${label(mode)} inference verified with ${result.model}: ${result.text.slice(0, 80)}`);
   } catch (error) {
     output.appendLine(`[test] mode=${mode} ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode connection test failed: ${messageOf(error)}`);
@@ -205,8 +251,8 @@ interface UsageQuickPickItem extends vscode.QuickPickItem {
   action?: "manage" | "diagnostics";
 }
 
-async function showUsage(provider: OpenCodeProvider): Promise<void> {
-  const snapshot = provider.getUsageSnapshot();
+async function showUsage(provider: OpenCodeProvider, management = false): Promise<void> {
+  const snapshot = management ? provider.getManagementUsageSnapshot() : provider.getUsageSnapshot();
   const picked = await vscode.window.showQuickPick<UsageQuickPickItem>([
     ...formatUsageRows(snapshot).map(toUsageQuickPickItem),
     { label: "Actions", kind: vscode.QuickPickItemKind.Separator },
@@ -233,17 +279,21 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
     mode,
     models: await vscode.lm.selectChatModels({ vendor: OPENCODE_PROVIDER_DEFINITIONS[mode].vendor }),
   })));
-  const session = await auth.getConsoleSession();
+  const profiles = await auth.listConsoleProfiles();
+  const activeConsole = providers.console.getActiveProfile();
+  const session = await auth.getConsoleSession(activeConsole);
   const lines = [
     "# OpenCode for Copilot Chat diagnostics", "", `- VS Code: ${vscode.version}`,
-    `- Console session: ${session ? "present" : "missing"}`,
+    `- Console profiles: ${profiles.length ? profiles.join(", ") : "none"}`,
+    `- Active Console profile: ${activeConsole}`,
+    `- Active Console session: ${session ? "present" : "missing"}`,
     `- Console organization selected: ${session?.orgId ? "yes" : "no"}`, "",
     ...(await Promise.all(modelGroups.map(async ({ mode, models }) => [
       `## OpenCode ${label(mode)}`,
       "",
-      `- Credential: ${(await auth.hasCredential(mode)) ? "present" : "missing"}`,
+      `- Legacy command credential: ${(await auth.hasCredential(mode, mode === "console" ? activeConsole : DEFAULT_CONSOLE_PROFILE)) ? "present" : "missing"}`,
       `- Registered models: ${models.length}`,
-      `- Tracked usage: ${providers[mode].getUsageSnapshot().tracked?.totalTokens ?? 0} tokens`,
+      `- Management-entry tracked usage: ${providers[mode].getManagementUsageSnapshot().tracked?.totalTokens ?? 0} tokens`,
       "",
       ...models.map((model) => `- ${model.id} (${model.maxInputTokens} input tokens)`),
       "",

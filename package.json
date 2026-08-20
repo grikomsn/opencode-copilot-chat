@@ -64,12 +64,20 @@
         "title": "OpenCode Console: Import Local Session"
       },
       {
+        "command": "opencodeCopilot.addConsoleAccount",
+        "title": "OpenCode: Add Console Account"
+      },
+      {
+        "command": "opencodeCopilot.selectConsoleProfile",
+        "title": "OpenCode: Select Active Console Profile"
+      },
+      {
         "command": "opencodeCopilot.refreshModels",
-        "title": "OpenCode: Refresh Models"
+        "title": "OpenCode: Refresh Models (Legacy Key / Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.testConnection",
-        "title": "OpenCode: Test Connection"
+        "title": "OpenCode: Test Connection (Legacy Key / Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.showUsage",
@@ -302,17 +310,51 @@
       {
         "vendor": "opencodezen",
         "displayName": "OpenCode Zen",
-        "managementCommand": "opencodeCopilot.manageZen"
+        "configuration": {
+          "type": "object",
+          "required": ["apiKey"],
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "title": "OpenCode Zen API Key",
+              "description": "API key for this OpenCode Zen provider entry.",
+              "secret": true
+            }
+          }
+        }
       },
       {
         "vendor": "opencodego",
         "displayName": "OpenCode Go",
-        "managementCommand": "opencodeCopilot.manageGo"
+        "configuration": {
+          "type": "object",
+          "required": ["apiKey"],
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "title": "OpenCode Go API Key",
+              "description": "API key for this OpenCode Go provider entry.",
+              "secret": true
+            }
+          }
+        }
       },
       {
         "vendor": "opencodeconsole",
         "displayName": "OpenCode Console",
-        "managementCommand": "opencodeCopilot.manageConsole"
+        "configuration": {
+          "type": "object",
+          "required": ["profile"],
+          "properties": {
+            "profile": {
+              "type": "string",
+              "title": "OpenCode Console Profile",
+              "description": "Profile ID created with OpenCode: Add Console Account.",
+              "default": "default",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            }
+          }
+        }
       }
     ]
   },
