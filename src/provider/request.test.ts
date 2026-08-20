@@ -66,6 +66,31 @@ test("builds a Chat Completions request with usage and optional tools", () => {
   });
 });
 
+test("keeps tool-only assistant content provider-compatible", () => {
+  const chatModel = { ...model, endpoint: "chat-completions" as const };
+  const body = buildRequestBody(
+    chatModel,
+    [{
+      role: "assistant",
+      content: "",
+      tool_calls: [{ id: "call-1", type: "function", function: { name: "lookup", arguments: "{}" } }],
+    }],
+    [],
+    [],
+    [],
+    undefined,
+    1_024,
+    "auto",
+  );
+
+  assert.deepEqual(body.messages, [{
+    role: "assistant",
+    content: "",
+    tool_calls: [{ id: "call-1", type: "function", function: { name: "lookup", arguments: "{}" } }],
+  }]);
+  assert.equal(JSON.stringify(body).includes('"content":null'), false);
+});
+
 test("extension request fields override catalog request options", () => {
   const body = buildRequestBody(model, [], [{ type: "message", role: "user", content: "Hello" }], [], [], undefined, 512, "auto");
   const merged = mergeRequestBody({
