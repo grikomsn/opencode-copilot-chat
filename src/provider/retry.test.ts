@@ -20,6 +20,7 @@ test("reduces output after an authoritative context overflow response", () => {
 test("retries only known transient server failures with bounded backoff", () => {
   assert.equal(isTransientServerError(503, "unavailable"), true);
   assert.equal(isTransientServerError(500, "Router.Unavailable"), true);
+  assert.equal(isTransientServerError(500, "OpenCode request failed for mimo-v2.5 (500): Internal server error"), true);
   assert.equal(isTransientServerError(500, "permanent failure"), false);
   assert.deepEqual([0, 1, 2, 8].map(retryDelayMs), [250, 500, 1_000, 2_000]);
 });
