@@ -2,7 +2,7 @@
   "name": "opencode-bridge-copilot-chat",
   "displayName": "OpenCode for Copilot Chat",
   "description": "Use OpenCode Zen, Go, and Console models in GitHub Copilot Chat.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "grikomsn",
   "license": "MIT",
   "icon": "assets/icon.png",
