@@ -14,3 +14,12 @@ export function qualifiedModelId(credentialId: string, modelId: string): string 
     ? modelId
     : `${credentialId}::${modelId}`;
 }
+
+/** Restores a command-management profile without allowing malformed state to prevent activation. */
+export function activeConsoleProfileFromState(value: unknown): string {
+  try {
+    return typeof value === "string" ? normalizeConsoleProfile(value) : DEFAULT_CONSOLE_PROFILE;
+  } catch {
+    return DEFAULT_CONSOLE_PROFILE;
+  }
+}

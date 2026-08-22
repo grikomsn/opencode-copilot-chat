@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
+import { activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
 
 test("declares native API-key and Console-profile provider entries", () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -20,7 +20,7 @@ test("declares native API-key and Console-profile provider entries", () => {
       properties?: Record<string, { secret?: boolean }>;
     };
     const required = configuration.required;
-    assert.deepEqual(required, [vendor === "opencodeconsole" ? "profile" : "apiKey"]);
+    assert.deepEqual(required, vendor === "opencodeconsole" ? undefined : ["apiKey"]);
     if (vendor !== "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
@@ -39,4 +39,10 @@ test("qualifies model IDs and reports invalid saved Console profiles", () => {
     () => consoleProfileFromConfiguration({ profile: "work profile" }),
     /Update this provider entry in Manage Language Models/,
   );
+});
+
+test("restores only a valid persisted Console management profile", () => {
+  assert.equal(activeConsoleProfileFromState("Work"), "work");
+  assert.equal(activeConsoleProfileFromState("work profile"), "default");
+  assert.equal(activeConsoleProfileFromState(undefined), "default");
 });
