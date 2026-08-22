@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+### Patch Changes
+
+- 2a74245: Retry the gateway's generic transient HTTP 500 response before surfacing it to Copilot Chat.
+
 ## 0.4.1
 
 ### Patch Changes
