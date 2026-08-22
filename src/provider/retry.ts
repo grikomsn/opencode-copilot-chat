@@ -29,7 +29,7 @@ export function isTransientServerError(status: number, detail: string): boolean 
   return status === 502
     || status === 503
     || status === 504
-    || status === 500 && (/Router[._-]?Unavailable/i.test(detail) || /^Internal server error\.?$/i.test(detail.trim()));
+    || status === 500 && (/Router[._-]?Unavailable/i.test(detail) || /(?:^|:\s)Internal server error\.?\s*$/i.test(detail));
 }
 
 export function retryDelayMs(attempt: number): number {
