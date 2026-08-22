@@ -40,7 +40,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: `$(check) Test ${label(mode)} inference`, action: "test" },
         { label: `$(refresh) Refresh ${label(mode)} models`, action: "refresh" },
         ...(mode === "console" ? [{ label: "$(organization) Switch Console organization", action: "org" }] : []),
-        ...(mode === "console" ? [{ label: "$(account) Switch Console profile", action: "profile" }, { label: "$(add) Add Console account", action: "addConsole" }] : []),
+        ...(mode === "console" ? [{ label: "$(account) Select Console profile for usage and management", action: "profile" }, { label: "$(add) Add Console account", action: "addConsole" }] : []),
         { label: "$(key) Add or switch OpenCode credential", action: "switch" },
         { label: "$(sign-out) Sign out", action: "signout" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
@@ -50,7 +50,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: "$(key) Sign in with OpenCode Go API key", action: "go" },
         { label: "$(device-mobile) Sign in with OpenCode Console device code", action: "console" },
         { label: "$(add) Add named Console account", action: "addConsole" },
-        { label: "$(account) Switch Console profile", action: "profile" },
+        { label: "$(account) Select Console profile for usage and management", action: "profile" },
         { label: "$(database) Import Console session from local OpenCode", action: "importConsole" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
       ];

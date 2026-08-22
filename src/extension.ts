@@ -8,9 +8,11 @@ import { ModelsDevMetadata } from "./models/metadata";
 import { OPENCODE_PROVIDER_DEFINITIONS } from "./provider/definitions";
 import { formatUsageStatus, formatUsageTooltip } from "./usage/presentation";
 import type { OpenCodeUsageSnapshot } from "./usage/domain";
+import { activeConsoleProfileFromState } from "./provider-profile";
 
 const LEGACY_USAGE_STATE_KEY = "opencode.usageSnapshot.v1";
 const USAGE_STATE_KEY = "opencode.usageSnapshots.v2";
+const ACTIVE_CONSOLE_PROFILE_STATE_KEY = "opencode.activeConsoleProfile.v1";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("OpenCode");
@@ -19,6 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const userAgent = `opencode-copilot-chat/${version} VSCode/${vscode.version}`;
   const initialUsage = context.globalState.get<Readonly<Record<string, OpenCodeUsageSnapshot>>>(USAGE_STATE_KEY)
     ?? { "zen:legacy": context.globalState.get<OpenCodeUsageSnapshot>(LEGACY_USAGE_STATE_KEY) ?? {} };
+  const activeConsoleProfile = activeConsoleProfileFromState(context.globalState.get<unknown>(ACTIVE_CONSOLE_PROFILE_STATE_KEY));
   const metadata = new ModelsDevMetadata(context.globalState);
   const providers = Object.fromEntries(Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) => [
     definition.mode,
@@ -29,6 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
       definition.mode,
       () => new ModelCatalog(fetch, context.globalState, metadata),
       initialUsage,
+      definition.mode === "console" ? activeConsoleProfile : undefined,
     ),
   ])) as Record<keyof typeof OPENCODE_PROVIDER_DEFINITIONS, OpenCodeProvider>;
   const usageStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
@@ -40,6 +44,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     output,
     usageStatus,
+    providers.console.onDidChangeActiveConsoleProfile((profile) => {
+      void context.globalState.update(ACTIVE_CONSOLE_PROFILE_STATE_KEY, profile);
+    }),
     ...Object.values(providers).map((provider) => provider.onDidChangeUsage(({ scope, usage }) => {
       if (scope === provider.getActiveScope()) {
         activeUsageProvider = provider;

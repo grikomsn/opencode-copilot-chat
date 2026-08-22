@@ -13,7 +13,7 @@ import { buildFunctionTools, buildResponsesTools, originalToolName } from "./too
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
-import { consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
+import { activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
   readonly rawModelId: string;
@@ -26,15 +26,17 @@ export interface OpenCodeModelInformation extends vscode.LanguageModelChatInform
 export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCodeModelInformation> {
   private readonly changeEmitter = new vscode.EventEmitter<void>();
   private readonly usageEmitter = new vscode.EventEmitter<{ scope: string; usage: OpenCodeUsageSnapshot }>();
+  private readonly activeConsoleProfileEmitter = new vscode.EventEmitter<string>();
   private readonly catalogs = new Map<string, ModelCatalog>();
   private readonly credentials = new Map<string, Credential>();
   private readonly usageByScope = new Map<string, OpenCodeUsageSnapshot>();
   private activeCredentialId = "legacy";
   private lastUsedCredentialId = "legacy";
-  private activeProfile = DEFAULT_CONSOLE_PROFILE;
+  private activeProfile: string;
 
   readonly onDidChangeLanguageModelChatInformation = this.changeEmitter.event;
   readonly onDidChangeUsage = this.usageEmitter.event;
+  readonly onDidChangeActiveConsoleProfile = this.activeConsoleProfileEmitter.event;
 
   constructor(
     private readonly auth: OpenCodeAuth,
@@ -43,10 +45,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     private readonly mode: OpenCodeMode,
     private readonly catalogFactory: () => ModelCatalog = () => new ModelCatalog(),
     initialUsage: Readonly<Record<string, OpenCodeUsageSnapshot>> = {},
+    initialActiveConsoleProfile: unknown = DEFAULT_CONSOLE_PROFILE,
   ) {
     for (const [scope, usage] of Object.entries(initialUsage)) {
       if (scope.startsWith(`${mode}:`)) this.usageByScope.set(scope, usage);
     }
+    this.activeProfile = activeConsoleProfileFromState(initialActiveConsoleProfile);
   }
 
   fireDidChange(): void { this.changeEmitter.fire(); }
@@ -56,6 +60,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   setActiveConsoleProfile(profile: string): void {
     this.activeProfile = normalizeConsoleProfile(profile);
     this.activeCredentialId = `profile-${this.activeProfile}`;
+    this.activeConsoleProfileEmitter.fire(this.activeProfile);
   }
   getUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageByScope.get(this.getActiveScope()) ?? {}; }
   getManagementUsageSnapshot(): OpenCodeUsageSnapshot { return this.usageByScope.get(this.scopeFor(this.activeCredentialId)) ?? {}; }
