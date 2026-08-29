@@ -192,11 +192,15 @@ async function selectConsoleProfile(auth: OpenCodeAuth, provider: OpenCodeProvid
       const session = await auth.getConsoleSession(profile);
       return { label: profile, description: session?.email ?? "Signed in", detail: session?.orgName, profile };
     })),
-    { title: "Select the active OpenCode Console profile" },
+    { title: "Select the OpenCode Console profile for usage and management" },
   );
   if (!picked) return;
   provider.setActiveConsoleProfile(picked.profile);
-  vscode.window.showInformationMessage(`OpenCode Console profile “${picked.profile}” is now active for usage and management commands.`);
+  const choose = await vscode.window.showInformationMessage(
+    `OpenCode Console profile “${picked.profile}” is now active for usage and management. Chat requests keep using the account attached to the selected model entry.`,
+    "Choose Chat Model",
+  );
+  if (choose === "Choose Chat Model") await vscode.commands.executeCommand("workbench.action.chat.openModelPicker");
 }
 
 async function chooseOrganization(auth: OpenCodeAuth, orgs: readonly ConsoleOrg[], profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
