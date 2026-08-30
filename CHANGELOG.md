@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+### Patch Changes
+
+- 75e4d8a: Clarify that Console profile selection controls usage and management, and offer the VS Code chat model picker to switch the account used for inference.
+
 ## 0.4.3
 
 ### Patch Changes
