@@ -29,6 +29,10 @@ test("declares native API-key and Console-profile provider entries", () => {
       /Legacy Key \/ Active Console Profile/,
     );
   }
+  assert.match(
+    manifest.contributes.commands.find((item) => item.command === "opencodeCopilot.selectConsoleProfile")?.title ?? "",
+    /Usage and Management/,
+  );
 });
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
