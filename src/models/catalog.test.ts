@@ -48,6 +48,24 @@ test("uses authenticated live models and enriches fields from models.dev", async
   });
 });
 
+test("uses the live public catalog without credentials and excludes stale metadata-only models", async () => {
+  let authorization: string | null | undefined;
+  const catalog = new ModelCatalog(async (input, init) => {
+    if (String(input).endsWith("/models")) {
+      authorization = new Headers(init?.headers).get("authorization");
+      return Response.json({ data: [{ id: "current" }] });
+    }
+    return Response.json({ opencode: { models: {
+      current: { id: "current", name: "Current", limit: { context: 1000 }, tool_call: true },
+      removed: { id: "removed", name: "Removed" },
+    } } });
+  });
+  const models = await catalog.refresh("zen", undefined, false);
+  assert.deepEqual(models.map((model) => model.id), ["current"]);
+  assert.equal(models[0].name, "Current");
+  assert.equal(authorization, null);
+});
+
 test("restores a recent authenticated catalog cache when refresh fails", async () => {
   const values = new Map<string, unknown>();
   const cache = {
