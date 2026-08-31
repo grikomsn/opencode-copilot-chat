@@ -110,12 +110,7 @@ export class ModelCatalog {
     const providerId = mode === "go" ? "opencode-go" : "opencode";
     const snapshot = await this.metadata.getOrRefresh();
     const provider = snapshot.providers[providerId];
-    if (!credential?.token) {
-      return provider?.models
-        ? modelsFromProvider(mode, providerId, provider, provider.models, freeOnly && mode === "zen")
-        : fallbackModels(mode);
-    }
-    const liveModels = await this.loadLiveModels(mode, credential.token, signal);
+    const liveModels = await this.loadLiveModels(mode, credential?.token, signal);
     const combined = Object.fromEntries(Object.entries(liveModels).map(([id, live]) => {
       const cached = provider?.models?.[id] ?? provider?.models?.[live.id ?? ""];
       return [id, mergeModelSources(cached, live, id)];
@@ -123,9 +118,11 @@ export class ModelCatalog {
     return modelsFromProvider(mode, providerId, provider ?? { id: providerId }, combined, freeOnly && mode === "zen");
   }
 
-  private async loadLiveModels(mode: "zen" | "go", token: string, signal?: AbortSignal): Promise<Record<string, ModelSource>> {
+  private async loadLiveModels(mode: "zen" | "go", token: string | undefined, signal?: AbortSignal): Promise<Record<string, ModelSource>> {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await this.fetcher(`${apiBaseForMode(mode).replace(/\/+$/, "")}/models`, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      headers,
       signal,
     });
     if (!response.ok) throw new Error(`OpenCode ${mode} model discovery failed (${response.status})`);
