@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7
+
+### Patch Changes
+
+- adcc24e: Register OpenCode Go and Zen token pricing and relative cost tiers with VS Code.
+
 ## 0.4.6
 
 ### Patch Changes
