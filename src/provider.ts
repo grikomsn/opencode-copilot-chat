@@ -7,7 +7,7 @@ import { advertisedModelLimits, requestOutputLimit } from "./models/limits";
 import { modelConfigurationSchema, requestModelConfiguration, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
 import { convertChatMessages, convertResponsesMessages } from "./provider/messages";
 import { buildRequestBody, mergeRequestBody } from "./provider/request";
-import { analyzeHttp400ForRetry, isTransientServerError, retryDelayMs } from "./provider/retry";
+import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./provider/retry";
 import { reportStreamEvent } from "./provider/response";
 import { buildFunctionTools, buildResponsesTools, originalToolName } from "./tools/client-tools";
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
@@ -156,7 +156,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     let sawOutput = false;
     let requestBody = mergeRequestBody(model.body, body);
     let authRefreshed = false;
-    let parameterRetried = false;
+    let parameterRetries = 0;
     let transientRetries = 0;
     try {
       if (config.get<boolean>("debugLogging", false)) {
@@ -173,7 +173,18 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         };
         resetIdle();
         try {
-          const response = await fetch(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), { method: "POST", headers, body: JSON.stringify(requestBody), signal: controller.signal });
+          let response: Response;
+          try {
+            response = await fetch(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), { method: "POST", headers, body: JSON.stringify(requestBody), signal: controller.signal });
+          } catch (error) {
+            if (transientRetries < 2 && !controller.signal.aborted && isTransientNetworkError(error)) {
+              const delay = retryDelayMs(transientRetries++);
+              this.output.appendLine(`[request] retrying transient network failure for ${model.rawModelId} in ${String(delay)}ms`);
+              await waitForRetry(delay, controller.signal);
+              continue;
+            }
+            throw error;
+          }
           if (response.status === 401 && mode === "console" && !authRefreshed) {
             authRefreshed = true;
             credential = await this.auth.getCredential(mode, true, information.profile ?? DEFAULT_CONSOLE_PROFILE);
@@ -183,10 +194,10 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
           }
           if (!response.ok) {
             const error = await responseError(`OpenCode request failed for ${model.rawModelId}`, response);
-            if (response.status === 400 && !parameterRetried) {
+            if (response.status === 400 && parameterRetries < 3) {
               const patch = analyzeHttp400ForRetry(error.message, requestBody);
               if (patch) {
-                parameterRetried = true;
+                parameterRetries += 1;
                 requestBody = patch.body;
                 this.output.appendLine(`[request] retrying ${model.rawModelId}: ${patch.reason}`);
                 continue;
@@ -221,6 +232,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
             if (usage) this.setUsage(usage, information.credentialId);
           }
           if (!sawOutput) throw new Error(`OpenCode returned no content for ${model.rawModelId}`);
+          if (!parser.completed) this.output.appendLine(`[response] model=${model.rawModelId} delivered content without a terminal stream event`);
           if (config.get<boolean>("debugLogging", false)) this.output.appendLine(`[response] mode=${mode} model=${model.rawModelId} completed=true`);
           return;
         } finally {
