@@ -19,8 +19,12 @@ export class OpenCodeStreamParser {
   private readonly completedTools = new Set<string>();
   private finishReason: string | undefined;
   private messageUsage: Record<string, unknown> = {};
+  private terminalEventSeen = false;
+  private textDeltaSeen = false;
 
   constructor(private readonly endpoint: "chat-completions" | "messages" | "responses" | "google") {}
+
+  get completed(): boolean { return this.terminalEventSeen; }
 
   push(chunk: string): StreamEvent[] {
     this.buffer += chunk;
@@ -54,6 +58,7 @@ export class OpenCodeStreamParser {
     const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n").trim();
     if (!data) return undefined;
     if (data === "[DONE]") {
+      this.terminalEventSeen = true;
       this.finishReason = this.finishReason ?? "stop";
       return { done: true, finishReason: this.finishReason, toolCalls: this.flushTools() };
     }
@@ -83,7 +88,11 @@ export class OpenCodeStreamParser {
   }
 
   private parseResponses(json: Record<string, unknown>, type: string | undefined): StreamEvent | undefined {
-    if (type === "response.output_text.delta" || type === "response.text.delta") return string(json.delta) ? { text: string(json.delta) } : undefined;
+    if (type === "response.output_text.delta" || type === "response.text.delta") {
+      const text = string(json.delta);
+      if (text) this.textDeltaSeen = true;
+      return text ? { text } : undefined;
+    }
     if (type === "response.reasoning_text.delta" || type === "response.reasoning_summary_text.delta") return string(json.delta) ? { reasoning: string(json.delta) } : undefined;
     if (type === "response.output_item.added") {
       const item = record(json.item);
@@ -109,13 +118,15 @@ export class OpenCodeStreamParser {
       return flushed.length ? { toolCalls: flushed } : undefined;
     }
     if (type === "response.completed" || type === "response.done") {
+      this.terminalEventSeen = true;
       const response = record(json.response) ?? json;
       const status = string(response.status);
       const finishReason = status === "incomplete" ? "length" : "stop";
       this.finishReason = finishReason;
       const usage = record(response.usage) ?? record(json.usage);
       const tools = this.flushTools();
-      return { ...(tools.length ? { toolCalls: tools } : {}), ...(usage ? { usage } : {}), finishReason, done: true };
+      const text = this.textDeltaSeen ? undefined : responseText(response);
+      return { ...(text ? { text } : {}), ...(tools.length ? { toolCalls: tools } : {}), ...(usage ? { usage } : {}), finishReason, done: true };
     }
     return undefined;
   }
@@ -155,7 +166,10 @@ export class OpenCodeStreamParser {
       if (finishReason) this.finishReason = finishReason;
       return { ...(usage ? { usage } : {}), ...(finishReason ? { finishReason } : {}) };
     }
-    if (type === "message_stop") return { done: true, finishReason: this.finishReason ?? "stop", toolCalls: this.flushTools(), ...(Object.keys(this.messageUsage).length ? { usage: this.messageUsage } : {}) };
+    if (type === "message_stop") {
+      this.terminalEventSeen = true;
+      return { done: true, finishReason: this.finishReason ?? "stop", toolCalls: this.flushTools(), ...(Object.keys(this.messageUsage).length ? { usage: this.messageUsage } : {}) };
+    }
     return undefined;
   }
 
@@ -200,11 +214,37 @@ export class OpenCodeStreamParser {
   }
 
   private flushTools(): ToolCallEvent[] {
-    const values = [...new Set(this.tools.values())].filter((tool) => tool.name && !this.completedTools.has(tool.id));
+    const values = [...new Set(this.tools.values())]
+      .filter((tool) => tool.name && !this.completedTools.has(tool.id))
+      .map(completeToolCall);
     for (const tool of values) this.completedTools.add(tool.id);
     this.tools.clear();
     return values;
   }
+}
+
+function completeToolCall(tool: ToolCallEvent): ToolCallEvent {
+  const args = tool.arguments.trim() || "{}";
+  try {
+    JSON.parse(args);
+  } catch {
+    throw new Error(`OpenCode stream ended with incomplete arguments for tool ${tool.name}`);
+  }
+  return { ...tool, arguments: args };
+}
+
+function responseText(response: Record<string, unknown>): string | undefined {
+  const output = Array.isArray(response.output) ? response.output : [];
+  const text = output.flatMap((raw) => {
+    const item = record(raw);
+    if (!item || item.type !== "message" || !Array.isArray(item.content)) return [];
+    return item.content.flatMap((rawPart) => {
+      const part = record(rawPart);
+      const value = string(part?.text);
+      return value && (part?.type === "output_text" || part?.type === "text") ? [value] : [];
+    });
+  }).join("");
+  return text || undefined;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

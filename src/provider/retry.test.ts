@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeHttp400ForRetry, isTransientServerError, retryDelayMs } from "./retry";
+import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./retry";
 
 test("removes provider-specific fields rejected by an upstream model", () => {
   assert.deepEqual(
@@ -23,4 +23,11 @@ test("retries only known transient server failures with bounded backoff", () => 
   assert.equal(isTransientServerError(500, "OpenCode request failed for mimo-v2.5 (500): Internal server error"), true);
   assert.equal(isTransientServerError(500, "permanent failure"), false);
   assert.deepEqual([0, 1, 2, 8].map(retryDelayMs), [250, 500, 1_000, 2_000]);
+});
+
+test("recognizes transient fetch failures without retrying cancellation", () => {
+  assert.equal(isTransientNetworkError(new TypeError("fetch failed", { cause: new Error("ECONNRESET") })), true);
+  assert.equal(isTransientNetworkError(new Error("UND_ERR_CONNECT_TIMEOUT")), true);
+  assert.equal(isTransientNetworkError(new DOMException("Aborted", "AbortError")), false);
+  assert.equal(isTransientNetworkError(new Error("invalid request body")), false);
 });

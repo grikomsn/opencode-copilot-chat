@@ -26,6 +26,32 @@ test("flushes Responses API tool calls with the completion event", () => {
   assert.deepEqual(parser.push("event: response.completed\ndata: {\"response\":{\"status\":\"completed\"}}\n\n"), [{ toolCalls: [{ id: "call-1", name: "lookup", arguments: "{}" }], finishReason: "stop", done: true }]);
 });
 
+test("recovers Responses API text from the completion event when deltas are absent", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  const events = parser.push('event: response.completed\ndata: {"response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"final answer"}]}]}}\n\n');
+  assert.equal(events[0].text, "final answer");
+  assert.equal(parser.completed, true);
+});
+
+test("does not repeat completed Responses API text after a delta", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  parser.push('event: response.output_text.delta\ndata: {"delta":"answer"}\n\n');
+  const events = parser.push('event: response.completed\ndata: {"response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"answer"}]}]}}\n\n');
+  assert.equal(events[0].text, undefined);
+});
+
+test("rejects truncated tool arguments instead of emitting a malformed call", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  parser.push('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"lookup","arguments":"{\\"city\\":\\"Jak"}}]}}]}\n\n');
+  assert.throws(() => parser.finish(), /incomplete arguments for tool lookup/);
+});
+
+test("normalizes a complete empty tool argument payload", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  const events = parser.push('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"now","arguments":""}}]},"finish_reason":"tool_calls"}]}\n\n');
+  assert.equal(events[0].toolCalls?.[0].arguments, "{}");
+});
+
 test("parses CRLF boundaries split across transport chunks", () => {
   const parser = new OpenCodeStreamParser("chat-completions");
   assert.deepEqual(parser.push('data: {"choices":[{"delta":{"content":"hello"}}]}\r'), []);
