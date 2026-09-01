@@ -17,14 +17,15 @@ class MemoryCache implements MetadataCache {
 }
 
 const payload = {
-  opencode: { id: "opencode", models: { free: { reasoning: true, tool_call: true, limit: { context: 1000, output: 100 }, cost: { input: 0 } } } },
-  "opencode-go": { id: "opencode-go", models: { paid: { reasoning: true, modalities: { input: ["text", "image"] }, limit: { context: 2000, output: 200 } } } },
+  opencode: { id: "opencode", models: { free: { reasoning: true, tool_call: true, limit: { context: 1000, output: 100 }, cost: { input: 0, cache_read: 0, output: 0 } } } },
+  "opencode-go": { id: "opencode-go", models: { paid: { reasoning: true, modalities: { input: ["text", "image"] }, limit: { context: 2000, output: 200 }, cost: { input: 0.2, cache_read: 0.02, output: 1.2 } } } },
 };
 
 test("normalizes Zen and Go models.dev providers", () => {
   const snapshot = normalizeModelsDevSnapshot(payload, 123);
   assert.equal(snapshot.providers.opencode?.models?.free.limit?.context, 1000);
   assert.deepEqual(snapshot.providers["opencode-go"]?.models?.paid.modalities?.input, ["text", "image"]);
+  assert.deepEqual(snapshot.providers["opencode-go"]?.models?.paid.cost, { input: 0.2, output: 1.2, cacheRead: 0.02 });
   assert.equal(parseCachedModelsDevSnapshot(snapshot)?.providers.opencode?.models?.free.tool_call, true);
   assert.equal(parseCachedModelsDevSnapshot({ fetchedAt: -1, providers: {} }), undefined);
 });

@@ -13,6 +13,7 @@ import { buildFunctionTools, buildResponsesTools, originalToolName } from "./too
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
+import { modelPricingFields, openCodeModelCost } from "./models/pricing";
 import { activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
@@ -274,6 +275,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       capabilities: { imageInput: model.imageInput, toolCalling: model.toolCalling },
       ...(configurationSchema ? { configurationSchema } : {}),
       isUserSelectable: true,
+      ...(modelPricingFields(openCodeModelCost(model.rawModelId, model.cost)) ?? {}),
       isBYOK: true,
       requiresAuthorization: { label: `OpenCode ${this.mode === "console" ? `Console (${profile ?? DEFAULT_CONSOLE_PROFILE})` : this.mode === "go" ? "Go" : "Zen"}` },
       rawModelId: model.rawModelId,
