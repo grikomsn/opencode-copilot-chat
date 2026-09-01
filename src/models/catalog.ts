@@ -1,6 +1,7 @@
 import { apiBaseForMode, resolveEndpointKind, type EndpointKind, type OpenCodeMode } from "../transport/protocol";
 import type { Credential } from "../auth/auth";
 import { ModelsDevMetadata, type MetadataCache, type ModelSource, type ProviderSource } from "./metadata";
+import type { ModelCost } from "./pricing";
 
 export interface OpenCodeModel {
   id: string;
@@ -19,6 +20,7 @@ export interface OpenCodeModel {
   baseUrl: string;
   headers?: Record<string, string>;
   body?: Record<string, unknown>;
+  cost?: ModelCost;
 }
 
 export interface ReasoningOption {
@@ -172,6 +174,7 @@ export function modelsFromProvider(
     const contextLength = positive(source.limit?.context, 32768);
     const maxOutputTokens = positive(source.limit?.output, Math.min(contextLength, 8192));
     const modelId = source.id ?? rawId;
+    const cost = completeCost(source.cost);
     return [{
       id: rawId,
       rawModelId: modelId,
@@ -189,10 +192,22 @@ export function modelsFromProvider(
       toolCalling: source.tool_call === true,
       endpoint: resolveEndpointKind(modelId, mode, packageName),
       baseUrl,
+      ...(cost ? { cost } : {}),
       ...(provider.options?.headers && isStringRecord(provider.options.headers) ? { headers: provider.options.headers } : {}),
       ...((provider.options || source.options) ? { body: withoutCredentials({ ...provider.options, ...source.options }) } : {}),
     }];
   });
+}
+
+function completeCost(cost: ModelSource["cost"]): ModelCost | undefined {
+  if (cost?.input === undefined || cost.output === undefined) return undefined;
+  return {
+    input: cost.input,
+    output: cost.output,
+    ...(cost.cacheRead === undefined && cost.cache_read === undefined
+      ? {}
+      : { cacheRead: cost.cacheRead ?? cost.cache_read }),
+  };
 }
 
 export function catalogScope(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean): string {

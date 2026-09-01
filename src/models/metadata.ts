@@ -1,3 +1,5 @@
+import type { ModelCost } from "./pricing";
+
 export const MODELS_DEV_API_URL = "https://models.dev/api.json";
 export const MODELS_DEV_CACHE_KEY = "opencode.modelsDevMetadata.v1";
 export const MODELS_DEV_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -22,7 +24,7 @@ export interface ModelSource {
   modalities?: { input?: string[] };
   status?: string;
   disabled?: boolean;
-  cost?: { input?: number };
+  cost?: Partial<ModelCost> & { cache_read?: number };
   provider?: { npm?: string; api?: string };
   options?: Record<string, unknown>;
 }
@@ -158,7 +160,11 @@ function normalizeModel(key: string, value: unknown): ModelSource | undefined {
     modalities: { input: stringArray(modalities?.input) },
     status: stringValue(raw.status),
     disabled: booleanValue(raw.disabled),
-    cost: { input: numberValue(cost?.input) },
+    cost: {
+      input: numberValue(cost?.input),
+      output: numberValue(cost?.output),
+      cacheRead: numberValue(cost?.cache_read),
+    },
     provider: { npm: stringValue(provider?.npm), api: stringValue(provider?.api) },
     options: asRecord(raw.options),
   };
