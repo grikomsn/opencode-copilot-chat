@@ -249,8 +249,8 @@ function memoryCache(): CatalogCache {
 export function fallbackModels(mode: OpenCodeMode): OpenCodeModel[] {
   if (mode === "console") return [];
   const ids = mode === "go"
-    ? [["kimi-k2.6", "Kimi K2.6", 262144], ["deepseek-v4-flash", "DeepSeek V4 Flash", 1000000], ["minimax-m3", "MiniMax-M3", 1000000], ["qwen3.7-plus", "Qwen3.7 Plus", 1000000]]
-    : [["deepseek-v4-flash-free", "DeepSeek V4 Flash Free", 200000], ["glm-5-free", "GLM-5 Free", 204800], ["minimax-m3-free", "MiniMax-M3 Free", 200000], ["kimi-k2.5", "Kimi K2.5", 262144]];
+    ? [["kimi-k2.6", "Kimi K2.6", 262144], ["deepseek-v4-flash", "DeepSeek V4 Flash", 1000000], ["minimax-m3", "MiniMax-M3", 1000000], ["qwen3.7-plus", "Qwen3.7 Plus", 1000000], ["glm-5.3", "GLM-5.3", 1000000], ["kimi-k3", "Kimi K3", 1048576]]
+    : [["deepseek-v4-flash-free", "DeepSeek V4 Flash Free", 200000], ["nemotron-3-ultra-free", "Nemotron 3 Ultra Free", 1000000], ["big-pickle", "Big Pickle", 200000], ["kimi-k2.5", "Kimi K2.5", 262144]];
   return ids.map(([id, name, context]) => ({
     id: String(id), rawModelId: String(id), providerId: mode === "go" ? "opencode-go" : "opencode", name: String(name), family: familyOf(String(id)), contextLength: Number(context), maxOutputTokens: Math.min(Number(context), 32768), reasoning: true, imageInput: false, toolCalling: true, endpoint: resolveEndpointKind(String(id), mode), baseUrl: apiBaseForMode(mode),
   }));
