@@ -50,9 +50,10 @@ export function resolveEndpointKind(
   if (npm === "@ai-sdk/openai" || npm.endsWith("/openai")) return "responses";
   if (/^gpt-/i.test(modelId)) return "responses";
   if (/^claude-/i.test(modelId)) return "messages";
-  if (mode === "go" && (/^minimax-m2\./i.test(modelId) || /^qwen3\.(?:5|6)-plus/i.test(modelId) || /^qwen3\.7-max$/i.test(modelId))) {
-    return "messages";
-  }
+  if (/^grok-(?:4|build)/i.test(modelId)) return "responses";
+  if (/^muse-spark-/i.test(modelId)) return "responses";
+  if (/^qwen3\.\d+-(?:plus|max|flash)$/i.test(modelId)) return "messages";
+  if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
   if (mode === "zen" && /^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
 }

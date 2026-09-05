@@ -66,6 +66,26 @@ test("uses the live public catalog without credentials and excludes stale metada
   assert.equal(authorization, null);
 });
 
+test("enriches discovery-only Go models with supplemental metadata", async () => {
+  const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
+    ? Response.json({ data: [{ id: "hy3-preview" }, { id: "hy3" }] })
+    : Response.json({ "opencode-go": { id: "opencode-go", models: {
+      hy3: { id: "hy3", name: "Hy3", limit: { context: 256_000 }, reasoning: true, tool_call: true },
+    } } }));
+  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["hy3-preview", "hy3"]);
+  const preview = models.find((model) => model.id === "hy3-preview");
+  assert.deepEqual({ name: preview?.name, family: preview?.family, context: preview?.contextLength, reasoning: preview?.reasoning, tools: preview?.toolCalling }, {
+    name: "Hy3 preview",
+    family: "Hy",
+    context: 256_000,
+    reasoning: true,
+    tools: true,
+  });
+  assert.equal(preview?.endpoint, "chat-completions");
+  assert.equal(preview?.cost, undefined);
+});
+
 test("restores a recent authenticated catalog cache when refresh fails", async () => {
   const values = new Map<string, unknown>();
   const cache = {

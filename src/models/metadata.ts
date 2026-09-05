@@ -43,6 +43,25 @@ export interface ModelsDevSnapshot {
   readonly providers: Readonly<Record<"opencode" | "opencode-go", ProviderSource | undefined>>;
 }
 
+// Models served by OpenCode discovery before models.dev catalogs them. Each
+// entry mirrors the closest sibling model, is only used when models.dev lacks
+// the id, and is superseded by the canonical entry once it lands upstream.
+const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<Record<string, ModelSource>>>> = {
+  opencode: {},
+  "opencode-go": {
+    "hy3-preview": {
+      id: "hy3-preview",
+      name: "Hy3 preview",
+      family: "Hy",
+      limit: { context: 256_000, input: 192_000, output: 128_000 },
+      reasoning: true,
+      tool_call: true,
+      modalities: { input: ["text"] },
+      reasoning_options: [{ type: "effort", values: ["none", "low", "high"] }],
+    },
+  },
+};
+
 export interface MetadataCache {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): PromiseLike<void>;
@@ -122,18 +141,24 @@ function normalizeProvider(value: unknown, fallbackId: "opencode" | "opencode-go
   const raw = asRecord(value);
   const rawModels = asRecord(raw?.models);
   if (!raw || !rawModels) return undefined;
-  const models = Object.fromEntries(Object.entries(rawModels).flatMap(([key, model]) => {
-    const normalized = normalizeModel(key, model);
-    return normalized ? [[key, normalized]] : [];
-  }));
+  const models = Object.fromEntries([
+    ...Object.entries(SUPPLEMENTAL_MODELS[fallbackId]).flatMap(([key, supplemental]) => {
+      const normalized = normalizeModel(key, supplemental);
+      return normalized ? [[key, normalized]] : [];
+    }),
+    ...Object.entries(rawModels).flatMap(([key, model]) => {
+      const normalized = normalizeModel(key, model);
+      return normalized ? [[key, normalized]] : [];
+    }),
+  ]);
   if (!Object.keys(models).length) return undefined;
   return {
-    id: stringValue(raw.id) ?? fallbackId,
-    name: stringValue(raw.name),
-    api: stringValue(raw.api),
-    npm: stringValue(raw.npm),
+    id: stringValue(raw?.id) ?? fallbackId,
+    name: stringValue(raw?.name),
+    api: stringValue(raw?.api),
+    npm: stringValue(raw?.npm),
     models,
-    options: asRecord(raw.options),
+    options: asRecord(raw?.options),
   };
 }
 
