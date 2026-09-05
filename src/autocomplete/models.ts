@@ -28,9 +28,9 @@ const GO_CANDIDATES: readonly InlineModelCandidate[] = [
     detail: "Zero hidden reasoning with enable_thinking: false; Go standard usage tier is the cheapest path.",
   },
   {
-    id: "qwen3.8-flash",
-    badge: "compatible · unmeasured",
-    detail: "Flash-tier Qwen using the same enable_thinking: false path as the default; verify speed yourself.",
+    id: "mimo-v2.5",
+    badge: "measured 1.4s TTFB",
+    detail: "Zero hidden reasoning with thinking disabled; correct completion at default speed.",
   },
   {
     id: "kimi-k2.6",
@@ -42,6 +42,36 @@ const GO_CANDIDATES: readonly InlineModelCandidate[] = [
     badge: "measured 2.0s TTFB",
     detail: "Advertised reasoning_effort none; cleanest zero-reasoning result but slower than Qwen.",
   },
+  {
+    id: "qwen3.7-max",
+    badge: "⚠ measured: wrong scaling",
+    detail: "Divides by max only instead of min-max; not recommended for ghost text.",
+  },
+  {
+    id: "qwen3.8-flash",
+    badge: "⚠ measured: wrong scaling",
+    detail: "Hardcoded constants instead of min-max normalization; not recommended.",
+  },
+  {
+    id: "kimi-k3",
+    badge: "⚠ measured: thinking persists",
+    detail: "Burned 500 hidden reasoning characters with thinking disabled; not recommended.",
+  },
+  {
+    id: "minimax-m2.7",
+    badge: "⚠ measured: request fails",
+    detail: "Upstream returned an internal server error with thinking disabled.",
+  },
+  {
+    id: "glm-5.1",
+    badge: "⚠ thinking-only upstream",
+    detail: "Gateway upstream rejects the disable field (GLM is served thinking-only); cannot run without reasoning.",
+  },
+  {
+    id: "glm-5.2",
+    badge: "⚠ thinking-only upstream",
+    detail: "Same upstream rejection as glm-5.1; cannot run without reasoning.",
+  },
 ];
 
 const ZEN_CANDIDATES: readonly InlineModelCandidate[] = [
@@ -51,9 +81,19 @@ const ZEN_CANDIDATES: readonly InlineModelCandidate[] = [
     detail: "Zero hidden reasoning with enable_thinking: false; pay-as-you-go Zen balance required.",
   },
   {
+    id: "kimi-k2.5",
+    badge: "measured 1.2s TTFB",
+    detail: "Zero hidden reasoning with thinking disabled; measured faster than the default on Zen.",
+  },
+  {
     id: "qwen3.5-plus",
     badge: "measured 1.8s TTFB",
     detail: "The original fork default; zero hidden reasoning, pay-as-you-go Zen balance required.",
+  },
+  {
+    id: "glm-5.2",
+    badge: "⚠ thinking-only upstream",
+    detail: "Gateway upstream rejects the disable field (GLM is served thinking-only); cannot run without reasoning.",
   },
 ];
 
