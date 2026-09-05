@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.9
+
+### Patch Changes
+
+- d8adfcb: Temporarily distribute releases as sideloadable VSIX files through GitHub Releases instead of Visual Studio Marketplace, with a daily in-extension check that guides users when a newer VSIX is available.
+
 ## 0.4.8
 
 ### Patch Changes
