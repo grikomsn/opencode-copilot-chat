@@ -38,6 +38,8 @@ This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console a
 
 VS Code cannot automatically update a sideloaded build from GitHub. To update, download the newest VSIX from the latest release and repeat step 2; the newer build replaces the installed version while preserving the extension's stored settings and credentials.
 
+While Marketplace publishing is paused, the extension checks GitHub Releases at most once every 24 hours. When a newer VSIX is available, it shows a one-time notification with a link to the release and sideloading guidance.
+
 Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Zen and Go use each entry's authenticated live catalog, while Console shows only models enabled for that profile's selected organization. Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
 
 ## Documentation
