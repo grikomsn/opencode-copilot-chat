@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { registerInlineCompletions } from "./autocomplete";
 import { OpenCodeAuth } from "./auth/auth";
 import { registerCommands } from "./commands/commands";
 import { messageOf } from "./errors";
@@ -75,6 +76,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ...Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) =>
       vscode.lm.registerLanguageModelChatProvider(definition.vendor, providers[definition.mode])),
     ...registerCommands(auth, providers, output, () => activeUsageProvider),
+    registerInlineCompletions(context, {
+      resolveApiKey: async (gateway) => (await auth.getApiKeys())[gateway],
+      output,
+      userAgent,
+    }),
   );
   const releaseTimer = setInterval(() => void checkForRelease(context, version, userAgent, output), RELEASE_CHECK_INTERVAL_MS);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(releaseTimer)));

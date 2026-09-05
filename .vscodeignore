@@ -19,3 +19,5 @@ out/*.test.*
 **/.DS_Store
 *.vsix
 .DS_Store
+.env
+.env.*
