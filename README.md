@@ -7,13 +7,15 @@
 <p align="center">Use OpenCode Zen, OpenCode Go, and OpenCode Console models directly from the GitHub Copilot Chat model picker in Visual Studio Code.</p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat"><img src="https://img.shields.io/visual-studio-marketplace/v/grikomsn.opencode-bridge-copilot-chat?style=flat-square&logo=visualstudiocode&label=Marketplace" alt="Visual Studio Marketplace version"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat"><img src="https://img.shields.io/visual-studio-marketplace/i/grikomsn.opencode-bridge-copilot-chat?style=flat-square&label=Installs" alt="Visual Studio Marketplace installs"></a>
+  <a href="https://github.com/grikomsn/opencode-copilot-chat/releases/latest"><img src="https://img.shields.io/github/v/release/grikomsn/opencode-copilot-chat?style=flat-square&logo=github&label=Release" alt="Latest GitHub release"></a>
   <a href="https://github.com/grikomsn/opencode-copilot-chat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/grikomsn/opencode-copilot-chat/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
   <a href="https://github.com/grikomsn/opencode-copilot-chat/blob/main/LICENSE"><img src="https://img.shields.io/github/license/grikomsn/opencode-copilot-chat?style=flat-square" alt="MIT license"></a>
 </p>
 
-This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console as separate provider groups and streams their responses into Copilot Chat without a local proxy. VS Code 1.125 exposes the provider-entry configuration through the built-in Language Models UI; the Marketplace package does not enable proposed APIs.
+This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console as separate provider groups and streams their responses into Copilot Chat without a local proxy. VS Code 1.125 exposes the provider-entry configuration through the built-in Language Models UI; the packaged extension does not enable proposed APIs.
+
+> [!IMPORTANT]
+> Visual Studio Marketplace publishing is temporarily paused. Install and update the extension by sideloading the VSIX attached to the [latest GitHub release](https://github.com/grikomsn/opencode-copilot-chat/releases/latest).
 
 ## Highlights
 
@@ -28,10 +30,15 @@ This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console a
 
 ## Quick start
 
-1. Install [OpenCode for Copilot Chat](https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat). You need VS Code 1.125 or newer and GitHub Copilot Chat.
-2. For Zen or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its API key.
-3. For Console, run **OpenCode: Add Console Account**, choose a profile ID, then add an OpenCode Console entry with the same ID in **Manage Language Models**.
-4. Repeat either flow for another account or key, then enable the models you want in Copilot Chat.
+1. Download the `.vsix` asset from the [latest GitHub release](https://github.com/grikomsn/opencode-copilot-chat/releases/latest). You need VS Code 1.125 or newer and GitHub Copilot Chat.
+2. In VS Code, open **Extensions**, select the **…** menu, choose **Install from VSIX…**, and select the downloaded file. Alternatively, run `code --install-extension ./opencode-bridge-copilot-chat-<version>.vsix --force`.
+3. For Zen or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its API key.
+4. For Console, run **OpenCode: Add Console Account**, choose a profile ID, then add an OpenCode Console entry with the same ID in **Manage Language Models**.
+5. Repeat either flow for another account or key, then enable the models you want in Copilot Chat.
+
+VS Code cannot automatically update a sideloaded build from GitHub. To update, download the newest VSIX from the latest release and repeat step 2; the newer build replaces the installed version while preserving the extension's stored settings and credentials.
+
+While Marketplace publishing is paused, the extension checks GitHub Releases at most once every 24 hours. When a newer VSIX is available, it shows a one-time notification with a link to the release and sideloading guidance.
 
 Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Zen and Go use each entry's authenticated live catalog, while Console shows only models enabled for that profile's selected organization. Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
 
