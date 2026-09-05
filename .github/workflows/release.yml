@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   release:
-    name: Changesets and Marketplace
+    name: Changesets and GitHub release
     runs-on: ubuntu-latest
 
     steps:
@@ -60,12 +60,6 @@ jobs:
       - name: Validate and package extension
         if: steps.release.outputs.publish == 'true'
         run: npm run package
-
-      - name: Publish to Visual Studio Marketplace
-        if: steps.release.outputs.publish == 'true'
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --packagePath "opencode-bridge-copilot-chat-${{ steps.release.outputs.version }}.vsix" --skip-duplicate
 
       - name: Create GitHub release
         if: steps.release.outputs.publish == 'true'

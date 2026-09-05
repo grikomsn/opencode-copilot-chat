@@ -369,7 +369,7 @@
     "check": "npm test",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "npm run check && vsce publish --skip-duplicate",
+    "release": "npm run package",
     "prepackage": "npm run check",
     "package": "vsce package",
     "vscode:prepublish": "npm run compile"
