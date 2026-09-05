@@ -44,6 +44,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "opencodeCopilot.setInlineSuggestionsModel",
+        "title": "OpenCode: Set Inline Suggestions Model"
+      },
+      {
         "command": "opencodeCopilot.manage",
         "title": "OpenCode: Manage Connection"
       },
