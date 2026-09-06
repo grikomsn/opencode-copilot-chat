@@ -41,6 +41,21 @@ falls back to the cached catalog and then to a bundled snapshot:
 
 Live catalog results remain authoritative when they differ from this snapshot.
 
+## Context window size
+
+Each model entry exposes a Context Window control in the Copilot Chat model
+picker (`src/models/options.ts`). The options are Auto (the default), fixed
+64K, 128K, and 200K tiers that fit below the model's advertised input limit,
+and Maximum. Auto and Maximum keep the default behavior.
+
+A specific tier acts as a local upper limit: the selection is stored per model
+by VS Code, never exceeds the model's advertised input limit, and when the
+converted request exceeds the selected tier the oldest conversation turns are
+trimmed before the request is built (`src/provider/history-trim.ts`), across
+all four endpoint dialects. The first turn, the current turn, and tool-call
+adjacency are always preserved, and models without a fitting tier keep their
+picker unchanged.
+
 ## Pricing
 
 The model picker displays each model's input, cached-input, and output pricing
