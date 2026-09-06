@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- cfe0456: Add experimental, opt-in inline code suggestions (ghost text) powered by the OpenCode gateway with thinking forced off. Enable with `opencode.inlineSuggestions`, choose the gateway (`inlineSuggestionsGateway`, default `go`) and model (`inlineSuggestionsModel`, default `qwen3.7-plus`), and tune debounce, timeout, token budget, and context windows. A new **OpenCode: Set Inline Suggestions Model** command (also in the Manage menu) lists compatible models ordered cheap-and-fast first with measured badges, and can switch the gateway when a Zen-only model is picked; a custom model id remains enterable. Measured on the live gateway: `qwen3.7-plus` (Go) and `qwen3.6-plus` (Zen) complete fill-in-the-middle prompts with zero hidden reasoning. Suggestions never appear in the Copilot Chat prompt box unless separately enabled, and document context is never logged.
+
+### Patch Changes
+
+- c4fc6a3: Resync OpenCode Zen and Go model routing with the updated model catalog: route Go MiniMax M3 and Qwen3.8/3.7 tiers through the native Messages dialect, default Grok 4/Build and Muse Spark families to the Responses gateway when discovery metadata is unavailable, and enrich discovery-only models (currently Hy3 preview) with sibling metadata until models.dev catalogs them.
+
 ## 0.4.9
 
 ### Patch Changes
