@@ -44,6 +44,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "opencodeCopilot.setInlineSuggestionsModel",
+        "title": "OpenCode: Set Inline Suggestions Model"
+      },
+      {
         "command": "opencodeCopilot.manage",
         "title": "OpenCode: Manage Connection"
       },
@@ -110,6 +114,69 @@
           "type": "boolean",
           "default": true,
           "description": "Show only zero-cost OpenCode Zen models in the model picker."
+        },
+        "opencode.inlineSuggestions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental. Provide ghost-text inline completions while typing, powered by the OpenCode gateway with thinking forced off. Credentials, prompts, and document context are never logged."
+        },
+        "opencode.inlineSuggestionsGateway": {
+          "type": "string",
+          "enum": [
+            "go",
+            "zen"
+          ],
+          "default": "go",
+          "enumDescriptions": [
+            "Send inline completion requests through OpenCode Go",
+            "Send inline completion requests through OpenCode Zen"
+          ],
+          "description": "OpenCode gateway used for inline completion requests, independent of the chat provider in use."
+        },
+        "opencode.inlineSuggestionsModel": {
+          "type": "string",
+          "default": "qwen3.7-plus",
+          "description": "Model id used for inline completions. Choose a model with a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Zen); reasoning-first models are too slow for ghost text."
+        },
+        "opencode.inlineSuggestionsChatInput": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also offer inline completions inside the Copilot Chat prompt box."
+        },
+        "opencode.inlineSuggestionsDebounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Debounce window in milliseconds between typing and an inline completion request."
+        },
+        "opencode.inlineSuggestionsTimeoutMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 500,
+          "maximum": 15000,
+          "description": "Per-request timeout in milliseconds for inline completions."
+        },
+        "opencode.inlineSuggestionsMaxTokens": {
+          "type": "number",
+          "default": 128,
+          "minimum": 16,
+          "maximum": 1024,
+          "description": "Maximum tokens generated per inline completion."
+        },
+        "opencode.inlineSuggestionsPrefixLines": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Lines of document context sent before the cursor."
+        },
+        "opencode.inlineSuggestionsSuffixChars": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Characters of document context sent after the cursor."
         },
         "opencode.reasoningEffort": {
           "type": "string",

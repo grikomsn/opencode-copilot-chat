@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { DEFAULT_INLINE_GATEWAY, DEFAULT_INLINE_MODEL, INLINE_SUGGESTIONS_GATEWAY_SETTING, INLINE_SUGGESTIONS_MODEL_SETTING, parseInlineGateway } from "../autocomplete/config";
+import { inlineModelChoicesForGateway } from "../autocomplete/models";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type ConsoleOrg } from "../auth/auth";
 import { messageOf } from "../errors";
 import { OpenCodeProvider } from "../provider";
@@ -22,6 +24,7 @@ export function registerCommands(
     vscode.commands.registerCommand("opencodeCopilot.importConsoleSession", () => importConsoleSession(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.addConsoleAccount", () => addConsoleAccount(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
+    vscode.commands.registerCommand("opencodeCopilot.setInlineSuggestionsModel", () => setInlineSuggestionsModel()),
     vscode.commands.registerCommand("opencodeCopilot.refreshModels", () => refreshModels(providers[currentMode()])),
     vscode.commands.registerCommand("opencodeCopilot.testConnection", () => testConnection(providers[currentMode()], currentMode(), output)),
     vscode.commands.registerCommand("opencodeCopilot.showUsage", () => showUsage(usageProvider())),
@@ -39,6 +42,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: `$(pulse) Show ${label(mode)} usage`, action: "usage" },
         { label: `$(check) Test ${label(mode)} inference`, action: "test" },
         { label: `$(refresh) Refresh ${label(mode)} models`, action: "refresh" },
+        { label: "$(zap) Set inline suggestions model", action: "inlineModel" },
         ...(mode === "console" ? [{ label: "$(organization) Switch Console organization", action: "org" }] : []),
         ...(mode === "console" ? [{ label: "$(account) Select Console profile for usage and management", action: "profile" }, { label: "$(add) Add Console account", action: "addConsole" }] : []),
         { label: "$(key) Add or switch OpenCode credential", action: "switch" },
@@ -60,6 +64,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   else if (picked.action === "usage") await showUsage(provider, true);
   else if (picked.action === "test") await testConnection(provider, mode, output);
   else if (picked.action === "refresh") await refreshModels(provider);
+  else if (picked.action === "inlineModel") await setInlineSuggestionsModel();
   else if (picked.action === "org") await switchOrganization(auth, provider, output, profile);
   else if (picked.action === "profile") await selectConsoleProfile(auth, providers.console);
   else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
@@ -238,6 +243,50 @@ async function refreshModels(provider: OpenCodeProvider): Promise<void> {
   } catch (error) {
     vscode.window.showErrorMessage(`OpenCode model refresh failed: ${messageOf(error)}`);
   }
+}
+
+interface InlineModelPickItem extends vscode.QuickPickItem {
+  readonly action?: { readonly id: string; readonly gateway: "zen" | "go" } | "custom";
+}
+
+async function setInlineSuggestionsModel(): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration("opencode");
+  const gateway = parseInlineGateway(configuration.get(INLINE_SUGGESTIONS_GATEWAY_SETTING, DEFAULT_INLINE_GATEWAY));
+  const current = configuration.get<string>(INLINE_SUGGESTIONS_MODEL_SETTING, DEFAULT_INLINE_MODEL) ?? DEFAULT_INLINE_MODEL;
+  const items: InlineModelPickItem[] = inlineModelChoicesForGateway(gateway, current).map((choice) => ({
+    label: choice.label,
+    description: choice.description,
+    detail: choice.detail,
+    action: { id: choice.id, gateway: choice.gateway },
+  }));
+  const picked = await vscode.window.showQuickPick<InlineModelPickItem>([
+    ...items,
+    { label: "", kind: vscode.QuickPickItemKind.Separator },
+    { label: "$(pencil) Use a custom model id…", detail: "Enter any model id available on the selected gateway.", action: "custom" },
+  ], {
+    title: "OpenCode — Set Inline Suggestions Model",
+    placeHolder: `Current: ${current} (via OpenCode ${gateway === "zen" ? "Zen" : "Go"})`,
+  });
+  if (!picked) return;
+  if (picked.action === "custom") {
+    const value = await vscode.window.showInputBox({
+      title: "Custom inline suggestions model id",
+      value: current,
+      prompt: "Any model id available on the selected gateway; the vetted list is a starting point, not a restriction.",
+    });
+    if (value === undefined || !value.trim()) return;
+    await configuration.update(INLINE_SUGGESTIONS_MODEL_SETTING, value.trim(), vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(`OpenCode inline suggestions model set to ${value.trim()}.`);
+    return;
+  }
+  if (!picked.action) return;
+  await configuration.update(INLINE_SUGGESTIONS_MODEL_SETTING, picked.action.id, vscode.ConfigurationTarget.Global);
+  let suffix = "";
+  if (picked.action.gateway !== gateway) {
+    await configuration.update(INLINE_SUGGESTIONS_GATEWAY_SETTING, picked.action.gateway, vscode.ConfigurationTarget.Global);
+    suffix = ` and switched the gateway to OpenCode ${picked.action.gateway === "zen" ? "Zen" : "Go"}`;
+  }
+  void vscode.window.showInformationMessage(`OpenCode inline suggestions model set to ${picked.action.id}${suffix}. Applies on the next keystroke.`);
 }
 
 async function testConnection(provider: OpenCodeProvider, mode: OpenCodeMode, output: vscode.OutputChannel): Promise<void> {
