@@ -45,6 +45,7 @@ Composer controls override workspace defaults; ordered effort controls default t
 ## Documentation
 
 - [Setup, commands, settings, and troubleshooting](https://github.com/grikomsn/opencode-copilot-chat/blob/main/docs/setup.md)
+- [Models and pricing](https://github.com/grikomsn/opencode-copilot-chat/blob/main/docs/models.md)
 - [Credential handling and security](https://github.com/grikomsn/opencode-copilot-chat/blob/main/docs/security.md)
 - [Development and releases](https://github.com/grikomsn/opencode-copilot-chat/blob/main/docs/development.md)
 
