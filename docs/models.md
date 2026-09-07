@@ -72,3 +72,16 @@ is available, the extension falls back to the official rates below
 | Qwen3.7 Plus | $0.40 | $0.04 | $1.60 |
 
 Prices never override the discovered catalog values; they only fill gaps.
+
+### Context indicator compatibility
+
+Auto uses the model's registered input budget. The context indicator shows that
+input budget plus the response reserve; a numeric context tier replaces only
+the input budget. Auto is stored as `"auto"`, because VS Code interprets numeric
+zero as a zero-token input window. If an existing chat still shows only the
+output limit after upgrading, select Auto again in its Context Window control
+to replace a saved zero selection.
+
+Context Window uses the dedicated tokens group so it remains visible beside
+reasoning controls. VS Code renders only one enum property per group.
+Thinking Budget remains available by right-clicking the model in **Chat: Manage Language Models**.

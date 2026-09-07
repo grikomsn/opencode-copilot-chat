@@ -72,7 +72,9 @@ test("supports Qwen mode and token-budget controls on both transports", () => {
   assert.deepEqual(schema?.properties?.reasoningEffort.enum, ["off", "auto", "on"]);
   assert.equal(schema?.properties?.reasoningEffort.title, "Thinking");
   assert.equal(schema?.properties?.reasoningEffort.default, "auto");
-  assert.equal(schema?.properties?.thinkingBudget.group, "tokens");
+  assert.equal(schema?.properties?.thinkingBudget.group, undefined);
+  assert.equal(schema?.properties?.contextSize.group, "tokens");
+  assert.equal(modelConfigurationSchema({ ...qwen, contextLength: 32_768 })?.properties?.thinkingBudget.group, "tokens");
   assert.equal(schema?.properties?.thinkingBudget.default, "auto");
   assert.deepEqual(schema?.properties?.thinkingBudget.enum, ["auto", "4096", "16384", "32768", "81920"]);
   assert.deepEqual(schema?.properties?.thinkingBudget.enumItemLabels, ["Auto", "4K", "16K", "32K", "80K"]);
@@ -125,9 +127,9 @@ test("exposes upstream-compatible generic controls without inventing payload fie
 });
 
 test("offers context tiers below the advertised input limit", () => {
-  assert.deepEqual(contextSizeOptions(1_000_000)?.map((option) => option.value), [0, 65_536, 131_072, 200_000, 1_000_000]);
+  assert.deepEqual(contextSizeOptions(1_000_000)?.map((option) => option.value), ["auto", 65_536, 131_072, 200_000, 1_000_000]);
   assert.deepEqual(contextSizeOptions(1_000_000)?.map((option) => option.label), ["Auto", "64K", "128K", "200K", "Maximum"]);
-  assert.deepEqual(contextSizeOptions(131_072)?.map((option) => option.value), [0, 65_536, 131_072]);
+  assert.deepEqual(contextSizeOptions(131_072)?.map((option) => option.value), ["auto", 65_536, 131_072]);
 });
 
 test("omits the context picker when no tier fits", () => {
@@ -154,11 +156,25 @@ test("reads the context size from request configuration", () => {
 
 test("exposes a Context Window control alongside thinking controls", () => {
   const schema = modelConfigurationSchema(model);
-  assert.deepEqual(schema?.properties?.contextSize.enum, [0, 65_536, 91_808]);
-  assert.equal(schema?.properties?.contextSize.default, 0);
+  assert.deepEqual(schema?.properties?.contextSize.enum, ["auto", 65_536, 91_808]);
+  assert.equal(schema?.properties?.contextSize.default, "auto");
   assert.equal(schema?.properties?.contextSize.group, "tokens");
+  assert.equal(Object.entries(schema!.properties!).find(([, property]) => property.group === "tokens")?.[0], "contextSize");
 
   const plain = modelConfigurationSchema({ ...model, rawModelId: "plain-model", family: "plain", reasoningOptions: undefined, reasoning: false });
   assert.equal("reasoningEffort" in (plain?.properties ?? {}), false);
-  assert.deepEqual(plain?.properties?.contextSize.enum, [0, 65_536, 91_808]);
+  assert.deepEqual(plain?.properties?.contextSize.enum, ["auto", 65_536, 91_808]);
+});
+
+// Mirrors VS Code's context indicator contract: numeric selections replace input,
+// while a nonnumeric Auto selection falls back to the registered input limit.
+test("Auto preserves the full context window in the VS Code indicator", () => {
+  for (const input of [78_000, 244_800, 983_040]) {
+    const options = contextSizeOptions(input)!;
+    const auto = options.find((option) => option.label === "Auto")!;
+    const output = 16_384;
+    const displayedInput = typeof auto.value === "number" ? auto.value : input;
+    assert.equal(displayedInput + output, input + output);
+    assert.ok(options.every((option) => typeof option.value !== "number" || option.value > 0));
+  }
 });
