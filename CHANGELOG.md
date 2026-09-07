@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- 3f2f1bc: Adds a Context Window picker control (Auto, 64K, 128K, 200K, Maximum) that caps how much conversation history each request sends, clamped to the model's advertised input limit across all endpoint dialects.
+
+### Patch Changes
+
+- 3f2f1bc: Fix Auto context size being interpreted as zero input tokens by VS Code, collapsing the context indicator to the output reserve and triggering premature compaction.
+
+  Keep tool results adjacent to their calls instead of inserting an empty user message, fixing strict upstream tool-loop validation.
+
 ## 0.5.0
 
 ### Minor Changes
