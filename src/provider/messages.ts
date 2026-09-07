@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { chatContent, type ChatContent, type ContentPart } from "./content";
+import { orderToolResults } from "./message-order";
 
 export type { ChatContent, ContentPart } from "./content";
 
@@ -51,7 +52,7 @@ export function convertChatMessages(messages: readonly vscode.LanguageModelChatR
       ...(role === "assistant" && reasoning.length ? { reasoning_content: reasoning.join("\n") } : {}),
       ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
     };
-    return results.length ? [current, ...results] : [current];
+    return orderToolResults(current, results);
   });
 }
 

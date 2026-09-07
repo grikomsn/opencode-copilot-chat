@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { EndpointKind } from "../transport/protocol";
 import type { OpenCodeModel } from "./catalog";
+import { advertisedModelLimits } from "./limits";
 
 export type ReasoningEffort = "off" | "on" | "auto" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -57,44 +58,110 @@ export function requestModelConfiguration(options: {
   return options.modelConfiguration ?? options.configuration;
 }
 
+/** A selectable context window tier shown on a model's picker configuration. */
+export interface ContextSizeOption {
+  /** Context cap in input tokens; "auto" selects the model's default handling. */
+  readonly value: number | "auto";
+  /** Short picker label, e.g. "Auto", "128K", or "Maximum". */
+  readonly label: string;
+  /** Picker description for the tier. */
+  readonly description: string;
+}
+
+/** Fixed context tiers offered below a model's advertised input limit. */
+const CONTEXT_SIZE_TIERS: readonly { value: number; label: string }[] = [
+  { value: 65_536, label: "64K" },
+  { value: 131_072, label: "128K" },
+  { value: 200_000, label: "200K" },
+];
+
+/** Builds the context window tiers offered for a model's input limit; undefined when no tier fits. */
+export function contextSizeOptions(maxInputTokens: number): ContextSizeOption[] | undefined {
+  if (!Number.isFinite(maxInputTokens) || maxInputTokens <= CONTEXT_SIZE_TIERS[0].value) return undefined;
+  const tiers = CONTEXT_SIZE_TIERS.filter((tier) => tier.value < maxInputTokens);
+  if (!tiers.length) return undefined;
+  return [
+    // VS Code treats every numeric contextSize, including zero, as an input budget.
+    { value: "auto", label: "Auto", description: "Default context handling for this model." },
+    ...tiers.map((tier) => ({
+      value: tier.value,
+      label: tier.label,
+      description: `Keep the conversation under ${tier.label} input tokens.`,
+    })),
+    {
+      value: maxInputTokens,
+      label: "Maximum",
+      description: "Use the model's full available input limit.",
+    },
+  ];
+}
+
+/** Resolves the effective context cap for a request; Auto and Maximum return undefined. */
+export function resolveContextCap(contextSize: number, maxInputTokens: number): number | undefined {
+  if (!Number.isFinite(contextSize) || contextSize <= 0) return undefined;
+  if (!Number.isFinite(maxInputTokens) || maxInputTokens <= 0) return undefined;
+  const cap = Math.min(Math.floor(contextSize), maxInputTokens);
+  return cap < maxInputTokens ? cap : undefined;
+}
+
+/** Reads the opted-in context size from picker configuration; 0 keeps the model's default handling. */
+export function resolveContextSize(configuration: ModelConfiguration | undefined): number {
+  const value = configuration?.contextSize;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
 export function modelConfigurationSchema(
   model: OpenCodeModel,
   configuredEffort?: unknown,
   configuredBudget?: unknown,
 ): vscode.LanguageModelConfigurationSchema | undefined {
   const spec = thinkingSpec(model);
-  if (!spec) return undefined;
+  const contextOptions = contextSizeOptions(advertisedModelLimits(model).maxInputTokens);
+  if (!spec && !contextOptions) return undefined;
   const alwaysOnKimi = /^kimi-k2\.7/i.test(bareModelId(model.rawModelId));
   const requestedDefault = reasoningValue(configuredEffort);
-  const defaultEffort = requestedDefault && spec.efforts.includes(requestedDefault) ? requestedDefault : spec.defaultEffort;
+  const defaultEffort = requestedDefault && spec?.efforts.includes(requestedDefault) ? requestedDefault : spec?.defaultEffort;
   const requestedBudget = typeof configuredBudget === "string" || typeof configuredBudget === "number" ? Number(configuredBudget) : NaN;
-  const defaultBudget = spec.budgets?.includes(requestedBudget) ? requestedBudget : spec.budgets?.[0];
+  const defaultBudget = spec?.budgets?.includes(requestedBudget) ? requestedBudget : spec?.budgets?.[0];
   return {
     type: "object",
     properties: {
-      reasoningEffort: {
-        type: "string",
-        title: spec.efforts.every((effort) => effort === "off" || effort === "on" || effort === "auto") ? "Thinking" : "Thinking Effort",
-        enum: [...spec.efforts],
-        default: defaultEffort,
-        enumItemLabels: spec.efforts.map((effort) => alwaysOnKimi ? "Always On (K2.7)" : effortLabel(effort)),
-        enumDescriptions: spec.efforts.map((effort) => alwaysOnKimi
-          ? "Kimi K2.7-code requires thinking enabled (Moonshot API constraint)"
-          : EFFORT_DESCRIPTIONS[effort]),
-        description: "Choose this model's thinking mode or reasoning effort.",
-        group: "navigation",
-      },
-      ...(spec.budgets ? {
-        thinkingBudget: {
+      ...(spec ? {
+        reasoningEffort: {
           type: "string",
-          title: "Thinking Budget",
-          enum: spec.budgets.map(String),
-          default: String(defaultBudget),
-          enumItemLabels: spec.budgets.map(formatBudget),
-          enumDescriptions: spec.budgets.map((budget) => budget === "auto"
-            ? "Use the provider default thinking budget"
-            : `Allow up to ${budget.toLocaleString("en-US")} thinking tokens`),
-          description: "Maximum token budget used when thinking is enabled.",
+          title: spec.efforts.every((effort) => effort === "off" || effort === "on" || effort === "auto") ? "Thinking" : "Thinking Effort",
+          enum: [...spec.efforts],
+          default: defaultEffort,
+          enumItemLabels: spec.efforts.map((effort) => alwaysOnKimi ? "Always On (K2.7)" : effortLabel(effort)),
+          enumDescriptions: spec.efforts.map((effort) => alwaysOnKimi
+            ? "Kimi K2.7-code requires thinking enabled (Moonshot API constraint)"
+            : EFFORT_DESCRIPTIONS[effort]),
+          description: "Choose this model's thinking mode or reasoning effort.",
+          group: "navigation",
+        },
+        ...(spec.budgets ? {
+          thinkingBudget: {
+            type: "string",
+            title: "Thinking Budget",
+            enum: spec.budgets.map(String),
+            default: String(defaultBudget),
+            enumItemLabels: spec.budgets.map(formatBudget),
+            enumDescriptions: spec.budgets.map((budget) => budget === "auto"
+              ? "Use the provider default thinking budget"
+              : `Allow up to ${budget.toLocaleString("en-US")} thinking tokens`),
+            description: "Maximum token budget used when thinking is enabled.",
+            ...(contextOptions ? {} : { group: "tokens" }),
+          },
+        } : {}),
+      } : {}),
+      ...(contextOptions ? {
+        contextSize: {
+          type: ["string", "number"],
+          title: "Context Window",
+          enum: contextOptions.map((option) => option.value),
+          enumItemLabels: contextOptions.map((option) => option.label),
+          enumDescriptions: contextOptions.map((option) => option.description),
+          default: "auto",
           group: "tokens",
         },
       } : {}),

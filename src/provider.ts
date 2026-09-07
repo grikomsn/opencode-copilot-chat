@@ -4,7 +4,8 @@ import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type Cr
 import { messageOf, responseError } from "./errors";
 import { catalogScope, ModelCatalog, type OpenCodeModel } from "./models/catalog";
 import { advertisedModelLimits, requestOutputLimit } from "./models/limits";
-import { modelConfigurationSchema, requestModelConfiguration, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
+import { modelConfigurationSchema, requestModelConfiguration, resolveContextCap, resolveContextSize, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
+import { trimChatHistoryToFit, trimResponsesInputToFit } from "./provider/history-trim";
 import { convertChatMessages, convertResponsesMessages } from "./provider/messages";
 import { buildRequestBody, mergeRequestBody } from "./provider/request";
 import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./provider/retry";
@@ -136,8 +137,13 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const catalog = this.catalogFor(information.credentialId);
     const model = catalog.get(mode, information.catalogId) ?? catalog.list(mode).find((item) => item.rawModelId === information.rawModelId);
     if (!model) throw new Error(`OpenCode model is no longer available: ${information.rawModelId}`);
-    const converted = model.endpoint === "responses" ? [] : convertChatMessages(messages);
-    const responsesInput = model.endpoint === "responses" ? convertResponsesMessages(messages) : [];
+    const contextCap = resolveContextCap(resolveContextSize(requestModelConfiguration(options)), advertisedModelLimits(model).maxInputTokens);
+    const converted = model.endpoint === "responses"
+      ? []
+      : capHistory(convertChatMessages(messages), contextCap, trimChatHistoryToFit);
+    const responsesInput = model.endpoint === "responses"
+      ? capHistory(convertResponsesMessages(messages), contextCap, trimResponsesInputToFit)
+      : [];
     const tools = model.endpoint === "responses" ? [] : buildFunctionTools(options.tools);
     const responsesTools = model.endpoint === "responses" ? buildResponsesTools(options.tools) : [];
     const config = vscode.workspace.getConfiguration("opencode");
@@ -161,7 +167,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     let transientRetries = 0;
     try {
       if (config.get<boolean>("debugLogging", false)) {
-        this.output.appendLine(`[request] mode=${mode} model=${model.rawModelId} endpoint=${model.endpoint} maxOutput=${String(maxOutput)} tools=${String(options.tools?.length ?? 0)} initiator=${options.requestInitiator ?? "unknown"}`);
+        this.output.appendLine(`[request] mode=${mode} model=${model.rawModelId} endpoint=${model.endpoint} maxOutput=${String(maxOutput)}${contextCap !== undefined ? ` contextCap=${contextCap}` : ""} tools=${String(options.tools?.length ?? 0)} initiator=${options.requestInitiator ?? "unknown"}`);
       }
       while (true) {
         const requestId = randomUUID();
@@ -360,6 +366,15 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
 function configuredValue<T>(config: vscode.WorkspaceConfiguration, key: string): T | undefined {
   const inspected = config.inspect<T>(key);
   return inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue;
+}
+
+/** Applies an opted-in context cap by trimming converted request history. */
+function capHistory<T>(
+  items: readonly T[],
+  cap: number | undefined,
+  trim: (items: readonly T[], budgetTokens: number) => { readonly items: readonly T[] },
+): T[] {
+  return cap === undefined ? [...items] : [...trim(items, cap).items];
 }
 
 function estimateInputTokens(messages: readonly vscode.LanguageModelChatRequestMessage[], tools: readonly vscode.LanguageModelChatTool[] | undefined): number {
