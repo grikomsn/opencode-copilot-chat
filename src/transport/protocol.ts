@@ -1,11 +1,38 @@
+// Public Console is served at https://opencode.ai/console. The console.opencode.ai
+// alias 302-prefixes /console, so using it as a browser origin doubles that path.
 export const DEFAULT_CONSOLE_SERVER = "https://opencode.ai/console";
 export const ZEN_API_BASE_URL = "https://opencode.ai/zen/v1";
 export const GO_API_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_CLIENT_ID = "opencode-cli";
 export const OPENCODE_CLIENT = "opencode-copilot-chat";
 
+const PUBLIC_CONSOLE_ALIAS_HOST = "console.opencode.ai";
+
 export type OpenCodeMode = "zen" | "go" | "console";
 export type EndpointKind = "chat-completions" | "messages" | "responses" | "google";
+
+export function resolveConsoleVerificationUrl(server: string, verification: string): string {
+  let url: URL;
+  try {
+    url = new URL(verification, `${server.replace(/\/+$/, "")}/`);
+  } catch {
+    throw new Error("OpenCode Console returned an invalid verification URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("OpenCode Console returned a non-HTTP verification URL");
+  }
+  return canonicalizePublicConsoleUrl(url).href;
+}
+
+function canonicalizePublicConsoleUrl(url: URL): URL {
+  if (url.hostname !== PUBLIC_CONSOLE_ALIAS_HOST) return url;
+  const next = new URL(url.href);
+  next.hostname = "opencode.ai";
+  if (next.pathname !== "/console" && !next.pathname.startsWith("/console/")) {
+    next.pathname = `/console${next.pathname.startsWith("/") ? next.pathname : `/${next.pathname}`}`;
+  }
+  return next;
+}
 
 export function apiBaseForMode(mode: OpenCodeMode): string {
   return mode === "go" ? GO_API_BASE_URL : ZEN_API_BASE_URL;
