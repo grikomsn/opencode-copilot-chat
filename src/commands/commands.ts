@@ -21,7 +21,6 @@ export function registerCommands(
     vscode.commands.registerCommand("opencodeCopilot.manageZen", () => manage(auth, providers, output, "zen")),
     vscode.commands.registerCommand("opencodeCopilot.manageGo", () => manage(auth, providers, output, "go")),
     vscode.commands.registerCommand("opencodeCopilot.manageConsole", () => manage(auth, providers, output, "console")),
-    vscode.commands.registerCommand("opencodeCopilot.importConsoleSession", () => importConsoleSession(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.addConsoleAccount", () => addConsoleAccount(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
     vscode.commands.registerCommand("opencodeCopilot.setInlineSuggestionsModel", () => setInlineSuggestionsModel()),
@@ -55,7 +54,6 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: "$(device-mobile) Sign in with OpenCode Console device code", action: "console" },
         { label: "$(add) Add named Console account", action: "addConsole" },
         { label: "$(account) Select Console profile for usage and management", action: "profile" },
-        { label: "$(database) Import Console session from local OpenCode", action: "importConsole" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
       ];
   const picked = await vscode.window.showQuickPick(choices, { title: `OpenCode — ${signedIn ? `${label(mode)} connected` : "not connected"}${mode === "console" ? ` [${profile}]` : ""}` });
@@ -72,7 +70,6 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   else if (picked.action === "switch") await chooseModeAndSignIn(auth, providers, output);
   else if (picked.action === "zen" || picked.action === "go") await signInWithApiKey(auth, providers[picked.action], picked.action);
   else if (picked.action === "console") await signInWithConsole(auth, providers.console, output, profile);
-  else if (picked.action === "importConsole") await importConsoleSession(auth, providers.console, output);
 }
 
 async function chooseModeAndSignIn(auth: OpenCodeAuth, providers: OpenCodeProviders, output: vscode.OutputChannel): Promise<void> {
@@ -80,29 +77,10 @@ async function chooseModeAndSignIn(auth: OpenCodeAuth, providers: OpenCodeProvid
     { label: "OpenCode Zen API key", mode: "zen" as const },
     { label: "OpenCode Go API key", mode: "go" as const },
     { label: "OpenCode Console device code", mode: "console" as const },
-    { label: "Import Console session from local OpenCode", mode: "importConsole" as const },
   ], { title: "Choose an OpenCode credential mode" });
   if (!picked) return;
   if (picked.mode === "console") await signInWithConsole(auth, providers.console, output);
-  else if (picked.mode === "importConsole") await importConsoleSession(auth, providers.console, output);
   else await signInWithApiKey(auth, providers[picked.mode], picked.mode);
-}
-
-async function importConsoleSession(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
-  try {
-    const session = await auth.importLocalConsoleSession(true);
-    if (!session) {
-      vscode.window.showInformationMessage("No importable OpenCode Console session was found in the local opencode.db.");
-      return;
-    }
-    await setMode("console");
-    provider.setActiveConsoleProfile(DEFAULT_CONSOLE_PROFILE);
-    const models = await provider.refreshModels();
-    vscode.window.showInformationMessage(`Imported OpenCode Console into VS Code${session.orgName ? ` for ${session.orgName}` : ""}. Found ${models.length} allowed models.`);
-  } catch (error) {
-    output.appendLine(`[console] local import failed: ${messageOf(error)}`);
-    vscode.window.showErrorMessage(`Unable to import the local OpenCode Console session: ${messageOf(error)}`);
-  }
 }
 
 async function signInWithApiKey(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: "zen" | "go"): Promise<void> {

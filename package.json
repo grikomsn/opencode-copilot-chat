@@ -64,10 +64,6 @@
         "title": "OpenCode Console: Manage Connection"
       },
       {
-        "command": "opencodeCopilot.importConsoleSession",
-        "title": "OpenCode Console: Import Local Session"
-      },
-      {
         "command": "opencodeCopilot.addConsoleAccount",
         "title": "OpenCode: Add Console Account"
       },
