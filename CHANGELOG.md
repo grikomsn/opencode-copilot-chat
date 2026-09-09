@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- 0722c9b: Remove all local OpenCode credential and session importing. OpenCode Console accounts must now use an explicit device-code sign-in initiated from VS Code, and credentials remain in VS Code Secret Storage.
+
 ## 0.6.0
 
 ### Minor Changes
