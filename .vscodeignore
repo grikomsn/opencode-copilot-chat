@@ -4,6 +4,7 @@
 .codex/**
 docs/**
 assets/cover.jpg
+.env*
 .gitignore
 CODE_OF_CONDUCT.md
 CONTRIBUTING.md
@@ -19,5 +20,3 @@ out/*.test.*
 **/.DS_Store
 *.vsix
 .DS_Store
-.env
-.env.*
