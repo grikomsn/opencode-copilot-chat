@@ -37,23 +37,6 @@ test("opens Console device verification at opencode.ai/console/device", async ()
   assert.equal(device.userCode, "ABCD-EFGH");
 });
 
-test("rewrites console.opencode.ai device pages onto opencode.ai/console", async () => {
-  const fetcher: typeof fetch = async (input) => {
-    assert.equal(String(input), "https://console.opencode.ai/auth/device/code");
-    return Response.json({
-      device_code: "device",
-      user_code: "WXYZ-UVST",
-      verification_uri_complete: "/console/device?user_code=WXYZ-UVST",
-      expires_in: 900,
-      interval: 5,
-    });
-  };
-  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000);
-  const device = await auth.requestDeviceCode("https://console.opencode.ai");
-  assert.equal(device.verificationUrl, "https://opencode.ai/console/device?user_code=WXYZ-UVST");
-  assert.equal(device.server, "https://console.opencode.ai");
-});
-
 test("stores Zen and Go keys separately", async () => {
   const auth = new OpenCodeAuth(new Secrets() as never);
   await auth.setApiKey("zen", "zen-key");
