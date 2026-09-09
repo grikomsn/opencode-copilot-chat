@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAuthHeaders, buildRequestHeaders, endpointUrl, resolveEndpointKind } from "./protocol";
+import { buildAuthHeaders, buildRequestHeaders, DEFAULT_CONSOLE_SERVER, endpointUrl, resolveConsoleVerificationUrl, resolveEndpointKind } from "./protocol";
+
+test("resolves Console device verification URLs onto the /console subpath", () => {
+  const complete = "/console/device?user_code=ABCD-EFGH&client_id=opencode-cli";
+  const expected = "https://opencode.ai/console/device?user_code=ABCD-EFGH&client_id=opencode-cli";
+  assert.equal(resolveConsoleVerificationUrl(DEFAULT_CONSOLE_SERVER, complete), expected);
+  assert.equal(resolveConsoleVerificationUrl("https://opencode.ai/console/", complete), expected);
+  assert.equal(resolveConsoleVerificationUrl(DEFAULT_CONSOLE_SERVER, "device?user_code=ABCD-EFGH"), "https://opencode.ai/console/device?user_code=ABCD-EFGH");
+  assert.equal(resolveConsoleVerificationUrl(DEFAULT_CONSOLE_SERVER, expected), expected);
+});
+
+test("rejects non-HTTP Console verification URLs", () => {
+  assert.throws(() => resolveConsoleVerificationUrl(DEFAULT_CONSOLE_SERVER, "javascript:alert(1)"), /non-HTTP/);
+  assert.throws(() => resolveConsoleVerificationUrl(DEFAULT_CONSOLE_SERVER, "http://["), /invalid verification URL/);
+});
 
 test("uses OpenCode gateway authentication conventions", () => {
   assert.deepEqual(buildAuthHeaders("chat-completions", "key"), { Authorization: "Bearer key" });

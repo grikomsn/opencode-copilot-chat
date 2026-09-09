@@ -7,6 +7,19 @@ export const OPENCODE_CLIENT = "opencode-copilot-chat";
 export type OpenCodeMode = "zen" | "go" | "console";
 export type EndpointKind = "chat-completions" | "messages" | "responses" | "google";
 
+export function resolveConsoleVerificationUrl(server: string, verification: string): string {
+  let url: URL;
+  try {
+    url = new URL(verification, `${server.replace(/\/+$/, "")}/`);
+  } catch {
+    throw new Error("OpenCode Console returned an invalid verification URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("OpenCode Console returned a non-HTTP verification URL");
+  }
+  return url.href;
+}
+
 export function apiBaseForMode(mode: OpenCodeMode): string {
   return mode === "go" ? GO_API_BASE_URL : ZEN_API_BASE_URL;
 }

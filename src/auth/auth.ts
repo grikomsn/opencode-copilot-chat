@@ -1,5 +1,5 @@
 import type * as vscode from "vscode";
-import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, type OpenCodeMode } from "../transport/protocol";
+import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, resolveConsoleVerificationUrl, type OpenCodeMode } from "../transport/protocol";
 
 const API_KEYS_KEY = "opencode.apiKeys.v1";
 const CONSOLE_SESSION_KEY = "opencode.consoleSession.v1";
@@ -151,7 +151,7 @@ export class OpenCodeAuth {
     return {
       deviceCode,
       userCode,
-      verificationUrl: verification.startsWith("http") ? verification : `${normalized}${verification}`,
+      verificationUrl: resolveConsoleVerificationUrl(normalized, verification),
       expiresAt: this.now() + expiresIn * 1000,
       intervalMs: Math.max(1000, positiveNumber(value.interval, 5) * 1000),
       server: normalized,
