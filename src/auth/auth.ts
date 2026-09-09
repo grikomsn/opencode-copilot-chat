@@ -1,11 +1,8 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type * as vscode from "vscode";
 import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, type OpenCodeMode } from "../transport/protocol";
 
 const API_KEYS_KEY = "opencode.apiKeys.v1";
 const CONSOLE_SESSION_KEY = "opencode.consoleSession.v1";
-const CONSOLE_IMPORT_STATE_KEY = "opencode.consoleImportState.v1";
 const CONSOLE_PROFILES_KEY = "opencode.consoleProfiles.v1";
 export const DEFAULT_CONSOLE_PROFILE = "default";
 
@@ -19,10 +16,6 @@ export function normalizeConsoleProfile(value: string): string {
 
 function consoleSessionKey(profile: string): string {
   return profile === DEFAULT_CONSOLE_PROFILE ? CONSOLE_SESSION_KEY : `${CONSOLE_SESSION_KEY}.${profile}`;
-}
-
-function consoleImportStateKey(profile: string): string {
-  return profile === DEFAULT_CONSOLE_PROFILE ? CONSOLE_IMPORT_STATE_KEY : `${CONSOLE_IMPORT_STATE_KEY}.${profile}`;
 }
 
 export interface ApiKeys {
@@ -79,7 +72,6 @@ export class OpenCodeAuth {
     private readonly fetcher: Fetcher = fetch,
     private readonly now: () => number = Date.now,
     private readonly sleep: Sleeper = delay,
-    private readonly localImporter: LocalOpenCodeSessionImporter = new LocalOpenCodeSessionImporter(),
   ) {}
 
   async getApiKeys(): Promise<ApiKeys> {
@@ -250,40 +242,8 @@ export class OpenCodeAuth {
     this.invalidateProfile(normalized);
     await this.mutateSession(normalized, async () => {
       await this.secrets.delete(consoleSessionKey(normalized));
-      await this.secrets.store(consoleImportStateKey(normalized), "signed-out");
       await this.mutateConsoleProfileIndex((profiles) => profiles.delete(normalized));
     });
-  }
-
-  async importLocalConsoleSession(
-    force = false,
-    profile = DEFAULT_CONSOLE_PROFILE,
-  ): Promise<ConsoleSession | undefined> {
-    const normalized = normalizeConsoleProfile(profile);
-    const startingGeneration = this.profileGeneration(normalized);
-    if (await this.getConsoleSession(normalized)) return undefined;
-    if (!force && await this.secrets.get(consoleImportStateKey(normalized))) return undefined;
-    if (this.profileGeneration(normalized) !== startingGeneration) {
-      throw new Error(`OpenCode Console import for profile “${normalized}” was superseded`);
-    }
-    const generation = this.beginSessionReplacement(normalized);
-    const imported = await this.localImporter.readActiveSession();
-    if (!imported) return undefined;
-    const current = imported.expiresAt > this.now() + 5 * 60_000
-      ? imported
-      : await this.refreshConsoleSession(imported, normalized, false);
-    const orgs = normalizeOrganizations(await this.getJson(current.server, "/api/orgs", current.accessToken) as unknown[]);
-    const org = current.orgId
-      ? orgs.find((item) => item.id === current.orgId)
-      : orgs[0];
-    const hydrated: ConsoleSession = {
-      ...current,
-      orgs,
-      ...(org ? { orgId: org.id, orgName: org.name } : {}),
-    };
-    await this.saveConsoleSession(hydrated, normalized, generation);
-    await this.secrets.store(consoleImportStateKey(normalized), "imported");
-    return hydrated;
   }
 
   async listConsoleProfiles(): Promise<string[]> {
@@ -365,7 +325,6 @@ export class OpenCodeAuth {
 
   private async storeConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
     await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
-    await this.secrets.store(consoleImportStateKey(profile), "managed");
     await this.mutateConsoleProfileIndex((profiles) => { profiles.add(profile); });
   }
 
@@ -422,50 +381,6 @@ export class OpenCodeAuth {
 
 function consoleSessionIdentity(session: ConsoleSession): string {
   return `${session.accessToken}\u0000${session.refreshToken}\u0000${session.expiresAt}`;
-}
-
-export class LocalOpenCodeSessionImporter {
-  private readonly path = join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "opencode", "opencode.db");
-
-  async readActiveSession(): Promise<ConsoleSession | undefined> {
-    try {
-      const row = await this.withDatabase((db) => db.prepare("SELECT a.id, a.email, a.url, a.access_token, a.refresh_token, a.token_expiry, s.active_org_id FROM account a JOIN account_state s ON s.active_account_id = a.id WHERE s.id = 1").get() as Record<string, unknown> | undefined);
-      if (!row) return undefined;
-      const accessToken = string(row.access_token);
-      const refreshToken = string(row.refresh_token);
-      const accountId = string(row.id);
-      const email = string(row.email);
-      const server = string(row.url);
-      if (!accessToken || !refreshToken || !accountId || !email || !server) return undefined;
-      return {
-        mode: "console",
-        server,
-        accessToken,
-        refreshToken,
-        expiresAt: typeof row.token_expiry === "number" ? row.token_expiry : 0,
-        accountId,
-        email,
-        orgs: [],
-        ...(string(row.active_org_id) ? { orgId: string(row.active_org_id) } : {}),
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async open(): Promise<any> {
-    const sqlite = await import("node:sqlite");
-    return new sqlite.DatabaseSync(this.path, { readOnly: true, timeout: 5000 });
-  }
-
-  private async withDatabase<T>(operation: (database: any) => T): Promise<T> {
-    const database = await this.open();
-    try {
-      return operation(database);
-    } finally {
-      database.close();
-    }
-  }
 }
 
 function parseSession(raw: string): ConsoleSession | undefined {

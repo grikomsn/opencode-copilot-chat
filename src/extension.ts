@@ -86,11 +86,6 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(releaseTimer)));
   void checkForRelease(context, version, userAgent, output);
   output.appendLine(`[activate] OpenCode for Copilot Chat ${version} on VS Code ${vscode.version}`);
-  void auth.importLocalConsoleSession().then((session) => {
-    if (!session) return;
-    output.appendLine("[auth] imported a local OpenCode Console session into VS Code Secret Storage");
-    providers.console.fireDidChange();
-  }).catch((error) => output.appendLine(`[auth] local OpenCode database import failed: ${messageOf(error)}`));
 }
 
 async function checkForRelease(
