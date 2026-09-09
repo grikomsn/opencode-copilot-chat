@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+### Patch Changes
+
+- 1c8ad84: Open Console device sign-in at `https://opencode.ai/console/device` instead of doubling the `/console` path.
+
 ## 0.7.0
 
 ### Minor Changes
