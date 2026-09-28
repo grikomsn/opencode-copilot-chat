@@ -11,6 +11,16 @@ test("filters deprecated and paid Zen models when free-only is enabled", () => {
   assert.deepEqual(models.map((model) => model.id), ["free"]);
 });
 
+test("filters internal smoke-test ids leaked into discovery", () => {
+  const models = modelsFromProvider("zen", "opencode", { api: "https://example.test/v1" }, {
+    test: { id: "test" },
+    "test-novita-dsf4.1": { id: "test-novita-dsf4.1" },
+    "test-model": { id: "test-model" },
+    tester: { id: "tester", name: "Tester" },
+  }, false);
+  assert.deepEqual(models.map((model) => model.id), ["tester"]);
+});
+
 test("preserves live reasoning options for the per-model thinking picker", () => {
   const [model] = modelsFromProvider("go", "opencode-go", {}, {
     "qwen3.7-max": {
@@ -84,6 +94,26 @@ test("enriches discovery-only Go models with supplemental metadata", async () =>
   });
   assert.equal(preview?.endpoint, "chat-completions");
   assert.equal(preview?.cost, undefined);
+});
+
+test("enriches discovery-only Go models with mirrored supplemental metadata", async () => {
+  const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
+    ? Response.json({ data: [{ id: "deepseek-flash" }] })
+    : Response.json({ "opencode-go": { id: "opencode-go", models: {} } }));
+  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["deepseek-flash"]);
+  const flash = models[0];
+  assert.deepEqual({ name: flash.name, family: flash.family, context: flash.contextLength, output: flash.maxOutputTokens, image: flash.imageInput, reasoning: flash.reasoning, tools: flash.toolCalling, cost: flash.cost, endpoint: flash.endpoint }, {
+    name: "DeepSeek V4.1 Flash",
+    family: "deepseek-flash",
+    context: 1_000_000,
+    output: 393_216,
+    image: true,
+    reasoning: true,
+    tools: true,
+    cost: { input: 0.15, output: 0.6, cacheRead: 0.003 },
+    endpoint: "chat-completions",
+  });
 });
 
 test("restores a recent authenticated catalog cache when refresh fails", async () => {

@@ -43,6 +43,28 @@ test("supplements discovery-only Go models that models.dev has not cataloged", (
   assert.equal(snapshot.providers.opencode?.models?.["hy3-preview"], undefined);
 });
 
+test("mirrors canonical upstream entries for discovery-only Go models", () => {
+  const snapshot = normalizeModelsDevSnapshot({ "opencode-go": { id: "opencode-go", models: {} } }, 123);
+  const go = snapshot.providers["opencode-go"]?.models ?? {};
+  const flash = go["deepseek-flash"];
+  assert.equal(flash?.name, "DeepSeek V4.1 Flash");
+  assert.equal(flash?.limit?.context, 1_000_000);
+  assert.equal(flash?.limit?.output, 393_216);
+  assert.deepEqual(flash?.cost, { input: 0.15, output: 0.6, cacheRead: 0.003 });
+  assert.equal(flash?.reasoning, true);
+  assert.equal(flash?.tool_call, true);
+  const qwen = go["qwen3.5-plus"];
+  assert.equal(qwen?.provider?.npm, "@ai-sdk/anthropic");
+  assert.equal(qwen?.limit?.context, 262_144);
+  assert.equal(qwen?.limit?.output, 65_536);
+  for (const id of ["minimax-m2.5", "kimi-k2.5", "glm-5.1", "glm-5"]) {
+    assert.equal(go[id]?.reasoning, true, id);
+    assert.equal(go[id]?.tool_call, true, id);
+    assert.ok(go[id]?.limit?.context, id);
+  }
+  assert.equal(snapshot.providers.opencode?.models?.["deepseek-flash"], undefined);
+});
+
 test("lets canonical models.dev entries override supplemental metadata", () => {
   const canonical = { id: "hy3-preview", name: "Canonical Hy3 preview", limit: { context: 999_999 }, reasoning: true, tool_call: true };
   const snapshot = normalizeModelsDevSnapshot({ "opencode-go": { id: "opencode-go", models: { "hy3-preview": canonical } } }, 123);
