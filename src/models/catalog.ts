@@ -168,6 +168,7 @@ export function modelsFromProvider(
 ): OpenCodeModel[] {
   return Object.entries(sources).flatMap(([rawId, source]) => {
     if (source.status === "deprecated" || source.disabled === true) return [];
+    if (isInternalTestModel(rawId)) return [];
     if (freeOnly && (source.cost?.input ?? 1) > 0) return [];
     const packageName = source.provider?.npm ?? provider.npm;
     const baseUrl = source.provider?.api ?? provider.api ?? apiBaseForMode(mode === "console" ? "zen" : mode);
@@ -266,6 +267,11 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 function positive(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+/** Internal OpenCode smoke-test ids that leak into authenticated discovery. */
+function isInternalTestModel(id: string): boolean {
+  return /^test(?:[-_.]|$)/i.test(id.trim());
 }
 
 function familyOf(id: string): string {

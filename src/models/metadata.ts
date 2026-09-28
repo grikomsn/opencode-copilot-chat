@@ -46,6 +46,10 @@ export interface ModelsDevSnapshot {
 // Models served by OpenCode discovery before models.dev catalogs them. Each
 // entry mirrors the closest sibling model, is only used when models.dev lacks
 // the id, and is superseded by the canonical entry once it lands upstream.
+// Mirrors only carry data that a canonical upstream entry already publishes
+// for the same model; nothing is guessed. `deepseek-flash` mirrors the
+// DeepSeek provider entry, and the anonymous-discovery Go ids mirror their
+// Zen provider entries.
 const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<Record<string, ModelSource>>>> = {
   opencode: {},
   "opencode-go": {
@@ -58,6 +62,76 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       tool_call: true,
       modalities: { input: ["text"] },
       reasoning_options: [{ type: "effort", values: ["none", "low", "high"] }],
+    },
+    "deepseek-flash": {
+      id: "deepseek-flash",
+      name: "DeepSeek V4.1 Flash",
+      family: "deepseek-flash",
+      limit: { context: 1_000_000, output: 393_216 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
+      tool_call: true,
+      attachment: true,
+      modalities: { input: ["text", "image"] },
+      cost: { input: 0.15, output: 0.6, cache_read: 0.003 },
+    },
+    "minimax-m2.5": {
+      id: "minimax-m2.5",
+      name: "MiniMax-M2.5",
+      family: "minimax",
+      limit: { context: 204_800, output: 131_072 },
+      reasoning: true,
+      reasoning_options: [],
+      tool_call: true,
+      modalities: { input: ["text"] },
+      cost: { input: 0.3, output: 1.2, cache_read: 0.06 },
+    },
+    "kimi-k2.5": {
+      id: "kimi-k2.5",
+      name: "Kimi K2.5",
+      family: "kimi-k2",
+      limit: { context: 262_144, output: 65_536 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      attachment: true,
+      modalities: { input: ["text", "image", "video"] },
+      cost: { input: 0.6, output: 3, cache_read: 0.08 },
+    },
+    "glm-5.1": {
+      id: "glm-5.1",
+      name: "GLM-5.1",
+      family: "glm",
+      limit: { context: 204_800, output: 131_072 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      modalities: { input: ["text"] },
+      cost: { input: 1.4, output: 4.4, cache_read: 0.26 },
+    },
+    "glm-5": {
+      id: "glm-5",
+      name: "GLM-5",
+      family: "glm",
+      limit: { context: 204_800, output: 131_072 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      modalities: { input: ["text"] },
+      cost: { input: 1, output: 3.2, cache_read: 0.2 },
+    },
+    "qwen3.5-plus": {
+      id: "qwen3.5-plus",
+      name: "Qwen3.5 Plus",
+      family: "qwen3.5",
+      limit: { context: 262_144, output: 65_536 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }, { type: "budget_tokens", max: 81_920 }],
+      tool_call: true,
+      attachment: true,
+      modalities: { input: ["text", "image", "video"] },
+      provider: { npm: "@ai-sdk/anthropic" },
+      cost: { input: 0.2, output: 1.2, cache_read: 0.02 },
     },
   },
 };
