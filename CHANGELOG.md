@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3
+
+### Patch Changes
+
+- 8815699: Correct the offline DeepSeek V4 Flash rate to the published Go price and route future Grok and Qwen model ids to their family endpoint even when models.dev omits a package name.
+
 ## 0.7.2
 
 ### Patch Changes
