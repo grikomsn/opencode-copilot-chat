@@ -152,10 +152,13 @@ export class ModelCatalog {
     if (!response.ok) throw new Error(`OpenCode Console model configuration failed (${response.status})`);
     const payload = await response.json() as { config?: { provider?: Record<string, ProviderSource> } };
     const providers = payload.config?.provider ?? {};
-    const entries = Object.entries(providers).flatMap(([id, provider]) => {
-      const models = provider.models ?? {};
-      return modelsFromProvider("console", id, provider, models, false);
-    });
+    // The org config lists every provider the Console manages, including
+    // `opencode-go` and BYOK entries. The Console model group serves the
+    // pay-as-you-go gateway only; Go has its own provider group and public
+    // discovery, so other provider ids are excluded here.
+    const primary = providers.opencode;
+    if (!primary) return [];
+    const entries = modelsFromProvider("console", "opencode", primary, primary.models ?? {}, false);
     const counts = new Map<string, number>();
     for (const model of entries) counts.set(model.rawModelId, (counts.get(model.rawModelId) ?? 0) + 1);
     return entries.map((model) => counts.get(model.rawModelId)! > 1 ? { ...model, id: `${model.providerId}/${model.rawModelId}` } : model);

@@ -155,6 +155,28 @@ test("resolves Console models from the organization configuration", async () => 
   assert.equal(requestedHeaders?.get("x-org-id"), "org");
 });
 
+test("excludes other Console-managed providers such as opencode-go from the Console group", async () => {
+  const catalog = new ModelCatalog(async () => new Response(JSON.stringify({ config: { provider: {
+    opencode: { models: { "glm-5.3": { id: "glm-5.3", name: "GLM-5.3", limit: { context: 1000, output: 100 } } } },
+    "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", name: "Kimi K3", limit: { context: 1000, output: 100 } } } },
+    openai: { models: { "gpt-5": { id: "gpt-5", name: "GPT-5", limit: { context: 1000, output: 100 } } } },
+  } } })));
+  const models = await catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["glm-5.3"]);
+  assert.equal(models[0].providerId, "opencode");
+});
+
+test("returns no Console models when the organization config omits the opencode provider", async () => {
+  const catalog = new ModelCatalog(async () => new Response(JSON.stringify({ config: { provider: {
+    "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", limit: { context: 1000, output: 100 } } } },
+  } } })));
+  await assert.rejects(
+    () => catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false),
+    /no usable models/,
+  );
+  assert.deepEqual(catalog.list("console"), []);
+});
+
 test("never falls back to a public model list for Console", async () => {
   const catalog = new ModelCatalog(async () => new Response("unavailable", { status: 503 }));
   assert.deepEqual(catalog.list("console"), []);
