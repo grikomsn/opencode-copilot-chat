@@ -21,7 +21,10 @@ models.dev outages. Models served by discovery before models.dev catalogs them
 use a small supplemental entry — currently the Go-only ids `hy3-preview`,
 `deepseek-flash`, `minimax-m2.5`, `kimi-k2.5`, `glm-5.1`, `glm-5`, and
 `qwen3.5-plus` —
-which is superseded by the canonical upstream entry once it lands.
+which is superseded by the canonical upstream entry once it lands. Discovery
+also serves legacy alias ids (currently the Go id `deepseek-flash` for
+`deepseek-v4.1-flash`); the alias is hidden whenever the canonical id appears
+in the same discovery response.
 
 Successful Zen and Go catalog results are cached per entry (mode, free-only
 scope, and a fingerprint of the credential) for up to 24 hours in

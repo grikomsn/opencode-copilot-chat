@@ -1,6 +1,6 @@
 import { apiBaseForMode, resolveEndpointKind, type EndpointKind, type OpenCodeMode } from "../transport/protocol";
 import type { Credential } from "../auth/auth";
-import { ModelsDevMetadata, type MetadataCache, type ModelSource, type ProviderSource } from "./metadata";
+import { ALIAS_MODELS, ModelsDevMetadata, type MetadataCache, type ModelSource, type ProviderSource } from "./metadata";
 import type { ModelCost } from "./pricing";
 
 export interface OpenCodeModel {
@@ -117,6 +117,9 @@ export class ModelCatalog {
       const cached = provider?.models?.[id] ?? provider?.models?.[live.id ?? ""];
       return [id, mergeModelSources(cached, live, id)];
     }));
+    for (const [alias, canonical] of Object.entries(ALIAS_MODELS[providerId])) {
+      if (alias in combined && canonical in combined) delete combined[alias];
+    }
     return modelsFromProvider(mode, providerId, provider ?? { id: providerId }, combined, freeOnly && mode === "zen");
   }
 

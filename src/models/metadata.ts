@@ -67,7 +67,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       id: "deepseek-flash",
       name: "DeepSeek V4.1 Flash",
       family: "deepseek-flash",
-      limit: { context: 1_000_000, output: 393_216 },
+      limit: { context: 1_000_000, output: 384_000 },
       reasoning: true,
       reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
       tool_call: true,
@@ -134,6 +134,15 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       cost: { input: 0.2, output: 1.2, cache_read: 0.02 },
     },
   },
+};
+
+// Live discovery may serve a legacy alias id alongside the canonical id for
+// the same model. When both appear in one discovery response the alias is
+// hidden from the picker; if only the alias is served it keeps its mirrored
+// supplemental metadata.
+export const ALIAS_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<Record<string, string>>>> = {
+  opencode: {},
+  "opencode-go": { "deepseek-flash": "deepseek-v4.1-flash" },
 };
 
 export interface MetadataCache {

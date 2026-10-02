@@ -107,13 +107,24 @@ test("enriches discovery-only Go models with mirrored supplemental metadata", as
     name: "DeepSeek V4.1 Flash",
     family: "deepseek-flash",
     context: 1_000_000,
-    output: 393_216,
+    output: 384_000,
     image: true,
     reasoning: true,
     tools: true,
     cost: { input: 0.15, output: 0.6, cacheRead: 0.003 },
     endpoint: "chat-completions",
   });
+});
+
+test("hides a live alias id when its canonical model is also discovered", async () => {
+  const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
+    ? Response.json({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4.1-flash" }] })
+    : Response.json({ "opencode-go": { id: "opencode-go", models: {
+      "deepseek-v4.1-flash": { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", limit: { context: 1_000_000, output: 384_000 }, reasoning: true, tool_call: true },
+    } } }));
+  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["deepseek-v4.1-flash"]);
+  assert.equal(models[0].name, "DeepSeek V4.1 Flash");
 });
 
 test("restores a recent authenticated catalog cache when refresh fails", async () => {
