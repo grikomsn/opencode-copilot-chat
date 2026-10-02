@@ -1,11 +1,21 @@
 export const DEFAULT_CONSOLE_SERVER = "https://opencode.ai/console";
-export const ZEN_API_BASE_URL = "https://opencode.ai/zen/v1";
+export const CONSOLE_API_BASE_URL = "https://opencode.ai/zen/v1";
 export const GO_API_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_CLIENT_ID = "opencode-cli";
 export const OPENCODE_CLIENT = "opencode-copilot-chat";
 
-export type OpenCodeMode = "zen" | "go" | "console";
+/** Legacy zen value of `opencode.defaultMode` and the inline gateway setting. */
+export const LEGACY_ZEN_MODE = "zen";
+
+export type OpenCodeMode = "console" | "go";
 export type EndpointKind = "chat-completions" | "messages" | "responses" | "google";
+
+/** Modes that can appear in persisted settings or state written by older versions. */
+export type LegacyOpenCodeMode = OpenCodeMode | "zen";
+
+export function normalizeMode(value: unknown): OpenCodeMode {
+  return value === "go" ? "go" : "console";
+}
 
 export function resolveConsoleVerificationUrl(server: string, verification: string): string {
   let url: URL;
@@ -21,7 +31,7 @@ export function resolveConsoleVerificationUrl(server: string, verification: stri
 }
 
 export function apiBaseForMode(mode: OpenCodeMode): string {
-  return mode === "go" ? GO_API_BASE_URL : ZEN_API_BASE_URL;
+  return mode === "go" ? GO_API_BASE_URL : CONSOLE_API_BASE_URL;
 }
 
 export function buildAuthHeaders(endpoint: EndpointKind, token: string): Record<string, string> {
@@ -70,7 +80,7 @@ export function resolveEndpointKind(
   if (/^muse-spark-/i.test(modelId)) return "responses";
   if (/^qwen/i.test(modelId)) return "messages";
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
-  if (mode === "zen" && /^gemini-/i.test(modelId)) return "google";
+  if (mode === "console" && /^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
 }
 

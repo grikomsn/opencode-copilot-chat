@@ -37,11 +37,54 @@ test("opens Console device verification at opencode.ai/console/device", async ()
   assert.equal(device.userCode, "ABCD-EFGH");
 });
 
-test("stores Zen and Go keys separately", async () => {
+test("stores Console and Go keys separately", async () => {
   const auth = new OpenCodeAuth(new Secrets() as never);
-  await auth.setApiKey("zen", "zen-key");
+  await auth.setApiKey("console", "console-key");
   await auth.setApiKey("go", "go-key");
-  assert.deepEqual(await auth.getApiKeys(), { zen: "zen-key", go: "go-key" });
+  assert.deepEqual(await auth.getApiKeys(), { console: "console-key", go: "go-key" });
+});
+
+test("migrates the legacy Zen service-account key to Console", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.apiKeys.v1", JSON.stringify({ zen: "legacy-zen-key", go: "go-key" }));
+  const auth = new OpenCodeAuth(secrets as never);
+  assert.deepEqual(await auth.getApiKeys(), { console: "legacy-zen-key", go: "go-key" });
+  // The migration is persisted so later reads are stable.
+  assert.equal(await secrets.get("opencode.apiKeys.v1"), JSON.stringify({ console: "legacy-zen-key", go: "go-key" }));
+});
+
+test("prefers the Console service-account key over the device-flow session", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.apiKeys.v1", JSON.stringify({ console: "console-key" }));
+  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
+    expiresAt: Date.now() + 3_600_000, accountId: "account", email: "user@example.com", orgs: [],
+  }));
+  const auth = new OpenCodeAuth(secrets as never);
+  const credential = await auth.getCredential("console");
+  assert.equal(credential?.token, "console-key");
+  assert.equal(credential?.server, undefined);
+  // Force-refresh still resolves through the session (used on 401); the
+  // device-flow token endpoint is fetched without a live network in tests.
+  const session = await auth.getConsoleSession();
+  assert.equal(session?.accessToken, "access");
+  assert.equal(session?.server, "https://example.test");
+});
+
+test("Go device-code sign-in resolves a Console session credential", async () => {
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+    if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
+    return Response.json([{ id: "org-1", name: "Alpha" }]);
+  };
+  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000, async () => undefined);
+  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
+  await auth.completeDeviceSignIn(device);
+  // Go requests authenticate with the Console session token.
+  const credential = await auth.getCredential("go");
+  assert.equal(credential?.mode, "go");
+  assert.equal(credential?.token, "access");
 });
 
 test("completes device flow and selects an organization", async () => {

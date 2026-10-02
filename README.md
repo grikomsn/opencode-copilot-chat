@@ -4,7 +4,7 @@
 
 <h1 align="center">OpenCode for Copilot Chat</h1>
 
-<p align="center">Use OpenCode Zen, OpenCode Go, and OpenCode Console models directly from the GitHub Copilot Chat model picker in Visual Studio Code.</p>
+<p align="center">Use OpenCode Console and OpenCode Go models directly from the GitHub Copilot Chat model picker in Visual Studio Code.</p>
 
 <p align="center">
   <a href="https://github.com/grikomsn/opencode-copilot-chat/releases/latest"><img src="https://img.shields.io/github/v/release/grikomsn/opencode-copilot-chat?style=flat-square&logo=github&label=Release" alt="Latest GitHub release"></a>
@@ -12,16 +12,16 @@
   <a href="https://github.com/grikomsn/opencode-copilot-chat/blob/main/LICENSE"><img src="https://img.shields.io/github/license/grikomsn/opencode-copilot-chat?style=flat-square" alt="MIT license"></a>
 </p>
 
-This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console as separate provider groups and streams their responses into Copilot Chat without a local proxy. VS Code 1.125 exposes the provider-entry configuration through the built-in Language Models UI; the packaged extension does not enable proposed APIs.
+This native VS Code `LanguageModelChatProvider` registers Console and Go as separate provider groups and streams their responses into Copilot Chat without a local proxy. VS Code 1.125 exposes the provider-entry configuration through the built-in Language Models UI; the packaged extension does not enable proposed APIs.
 
 > [!IMPORTANT]
 > Visual Studio Marketplace publishing is temporarily paused. Install and update the extension by sideloading the VSIX attached to the [latest GitHub release](https://github.com/grikomsn/opencode-copilot-chat/releases/latest).
 
 ## Highlights
 
-- Separate OpenCode Zen, Go, and Console model groups
-- API-key and Console device-code authentication in VS Code Secret Storage
-- Credential-scoped live discovery, with six-hour persisted models.dev enrichment for Zen and Go
+- Separate OpenCode Console and Go model groups
+- Service-account API keys and Console device-code authentication in VS Code Secret Storage
+- Credential-scoped live discovery, with six-hour persisted models.dev enrichment for Console and Go
 - Streaming text, reasoning, image inputs, and agent-mode tool calls
 - Model-specific Thinking Effort and Qwen thinking-budget controls
 - Bounded gateway retries and context-aware token limits
@@ -31,15 +31,15 @@ This native VS Code `LanguageModelChatProvider` registers Zen, Go, and Console a
 
 1. Download the `.vsix` asset from the [latest GitHub release](https://github.com/grikomsn/opencode-copilot-chat/releases/latest). You need VS Code 1.125 or newer and GitHub Copilot Chat.
 2. In VS Code, open **Extensions**, select the **…** menu, choose **Install from VSIX…**, and select the downloaded file. Alternatively, run `code --install-extension ./opencode-bridge-copilot-chat-<version>.vsix --force`.
-3. For Zen or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its API key.
-4. For Console, run **OpenCode: Add Console Account**, choose a profile ID, then add an OpenCode Console entry with the same ID in **Manage Language Models**.
+3. For Console or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its service-account API key (Console entries can omit the key and use a device-code profile instead).
+4. For Console device-code sign-in, run **OpenCode: Add Console Account**, choose a profile ID, then add an OpenCode Console entry with the same ID in **Manage Language Models**. Go can also sign in with the same Console device-code flow from the Manage Connection menu.
 5. Repeat either flow for another account or key, then enable the models you want in Copilot Chat.
 
 VS Code cannot automatically update a sideloaded build from GitHub. To update, download the newest VSIX from the latest release and repeat step 2; the newer build replaces the installed version while preserving the extension's stored settings and credentials.
 
 While Marketplace publishing is paused, the extension checks GitHub Releases at most once every 24 hours. When a newer VSIX is available, it shows a one-time notification with a link to the release and sideloading guidance.
 
-Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Zen and Go use each entry's authenticated live catalog, while Console shows only models enabled for that profile's selected organization. Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
+Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Console and Go use each entry's authenticated live catalog, while a Console device-code profile shows only models enabled for that profile's selected organization. Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
 
 ## Documentation
 

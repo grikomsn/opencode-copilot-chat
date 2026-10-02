@@ -18,8 +18,13 @@ export const INLINE_MAX_TOKENS_SETTING = "inlineSuggestionsMaxTokens";
 export const INLINE_PREFIX_LINES_SETTING = "inlineSuggestionsPrefixLines";
 export const INLINE_SUFFIX_CHARS_SETTING = "inlineSuggestionsSuffixChars";
 
-/** Gateway used for completion requests; independent of the chat provider. */
-export type InlineGateway = "zen" | "go";
+/**
+ * Gateway used for completion requests; independent of the chat provider.
+ * The legacy `zen` value is preserved in settings and resolved to the Console
+ * gateway (the former Zen gateway is now Console's pay-as-you-go inference).
+ */
+export type InlineGateway = "console" | "go";
+export type InlineGatewaySetting = InlineGateway | "zen";
 
 export const DEFAULT_INLINE_GATEWAY: InlineGateway = "go";
 /** Live-measured non-thinking default (Go gateway, `enable_thinking: false`). */
@@ -33,7 +38,7 @@ export const DEFAULT_INLINE_SUGGESTIONS_CHAT_INPUT = false;
 
 export const INLINE_SUGGESTIONS_DOC = "Provide experimental ghost-text inline completions while typing.";
 export const INLINE_GATEWAY_DESCRIPTION = "OpenCode gateway used for inline completion requests, independent of the chat provider in use.";
-export const INLINE_MODEL_DESCRIPTION = "Model id used for inline completions. Use a model that supports a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Zen).";
+export const INLINE_MODEL_DESCRIPTION = "Model id used for inline completions. Use a model that supports a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Console).";
 export const INLINE_CHAT_INPUT_DESCRIPTION = "Also offer inline completions inside the Copilot Chat prompt box.";
 export const INLINE_DEBOUNCE_DESCRIPTION = "Debounce window in milliseconds between typing and an inline completion request.";
 export const INLINE_TIMEOUT_DESCRIPTION = "Per-request timeout in milliseconds for inline completions.";
@@ -42,7 +47,12 @@ export const INLINE_PREFIX_LINES_DESCRIPTION = "Lines of context sent before the
 export const INLINE_SUFFIX_CHARS_DESCRIPTION = "Characters of context sent after the cursor.";
 
 export function parseInlineGateway(value: unknown): InlineGateway {
-  return value === "zen" ? "zen" : DEFAULT_INLINE_GATEWAY;
+  return value === "go" || value === "console" || value === "zen" ? resolveInlineGateway(value) : DEFAULT_INLINE_GATEWAY;
+}
+
+/** Maps the persisted setting value (including legacy `zen`) to a gateway. */
+export function resolveInlineGateway(value: InlineGatewaySetting): InlineGateway {
+  return value === "zen" ? "console" : value;
 }
 
 export function clampNumber(value: unknown, fallback: number, min: number, max: number): number {

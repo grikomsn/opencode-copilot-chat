@@ -11,7 +11,7 @@ test("declares native API-key and Console-profile provider entries", () => {
     };
   };
   const providers = manifest.contributes.languageModelChatProviders;
-  for (const vendor of ["opencodezen", "opencodego", "opencodeconsole"]) {
+  for (const vendor of ["opencodeconsole", "opencodego"]) {
     const provider = providers.find((item) => item.vendor === vendor);
     assert.ok(provider);
     assert.equal(provider.managementCommand, undefined);
@@ -22,6 +22,7 @@ test("declares native API-key and Console-profile provider entries", () => {
     const required = configuration.required;
     assert.deepEqual(required, vendor === "opencodeconsole" ? undefined : ["apiKey"]);
     if (vendor !== "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
+    if (vendor === "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
     assert.match(

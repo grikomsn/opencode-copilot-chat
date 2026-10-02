@@ -7,20 +7,15 @@ export interface OpenCodeProviderDefinition {
 }
 
 export const OPENCODE_PROVIDER_DEFINITIONS: Readonly<Record<OpenCodeMode, OpenCodeProviderDefinition>> = {
-  zen: {
-    mode: "zen",
-    vendor: "opencodezen",
-    displayName: "OpenCode Zen",
+  console: {
+    mode: "console",
+    vendor: "opencodeconsole",
+    displayName: "OpenCode Console",
   },
   go: {
     mode: "go",
     vendor: "opencodego",
     displayName: "OpenCode Go",
-  },
-  console: {
-    mode: "console",
-    vendor: "opencodeconsole",
-    displayName: "OpenCode Console",
   },
 };
 

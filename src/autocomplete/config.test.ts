@@ -48,7 +48,8 @@ test("keeps the documented inline-suggestion defaults", () => {
 });
 
 test("parses the inline gateway defensively", () => {
-  assert.equal(parseInlineGateway("zen"), "zen");
+  assert.equal(parseInlineGateway("zen"), "console");
+  assert.equal(parseInlineGateway("console"), "console");
   assert.equal(parseInlineGateway("go"), "go");
   assert.equal(parseInlineGateway(undefined), "go");
   assert.equal(parseInlineGateway("enterprise"), "go");
