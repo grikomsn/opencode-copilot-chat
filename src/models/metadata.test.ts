@@ -49,7 +49,7 @@ test("mirrors canonical upstream entries for discovery-only Go models", () => {
   const flash = go["deepseek-flash"];
   assert.equal(flash?.name, "DeepSeek V4.1 Flash");
   assert.equal(flash?.limit?.context, 1_000_000);
-  assert.equal(flash?.limit?.output, 393_216);
+  assert.equal(flash?.limit?.output, 384_000);
   assert.deepEqual(flash?.cost, { input: 0.15, output: 0.6, cacheRead: 0.003 });
   assert.equal(flash?.reasoning, true);
   assert.equal(flash?.tool_call, true);

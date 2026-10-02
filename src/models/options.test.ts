@@ -115,6 +115,11 @@ test("derives known-family controls when catalogs omit reasoning metadata", () =
     const sparseModel = { ...model, rawModelId, family, reasoning: false, reasoningOptions: undefined };
     assert.deepEqual(modelConfigurationSchema(sparseModel)?.properties?.reasoningEffort.enum, efforts, rawModelId);
   }
+  // Dash placement differs across gateways: Orvix lists `qwen-3.8-max` where
+  // OpenCode discovery and models.dev use `qwen3.8-max`; the id heuristic
+  // resolves the qwen controls for both spellings.
+  const dashedQwen = { ...model, rawModelId: "qwen-3.8-max", family: "", reasoning: false, reasoningOptions: undefined };
+  assert.deepEqual(modelConfigurationSchema(dashedQwen)?.properties?.reasoningEffort.enum, ["off", "auto", "on"]);
 });
 
 test("exposes upstream-compatible generic controls without inventing payload fields", () => {

@@ -63,9 +63,12 @@ export function resolveEndpointKind(
   if (npm === "@ai-sdk/openai" || npm.endsWith("/openai")) return "responses";
   if (/^gpt-/i.test(modelId)) return "responses";
   if (/^claude-/i.test(modelId)) return "messages";
-  if (/^grok-(?:4|build)/i.test(modelId)) return "responses";
+  // Family-wide rather than version-pinned: every live grok* and qwen* model
+  // on both gateways is responses or messages, and models.dev omits `npm` for
+  // some of them (qwen3.8-max), which is the only signal the checks above have.
+  if (/^grok(?:-|$)/i.test(modelId)) return "responses";
   if (/^muse-spark-/i.test(modelId)) return "responses";
-  if (/^qwen3\.\d+-(?:plus|max|flash)$/i.test(modelId)) return "messages";
+  if (/^qwen/i.test(modelId)) return "messages";
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
   if (mode === "zen" && /^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
