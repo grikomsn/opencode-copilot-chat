@@ -49,9 +49,32 @@ export interface ModelsDevSnapshot {
 // Mirrors only carry data that a canonical upstream entry already publishes
 // for the same model; nothing is guessed. `deepseek-flash` mirrors the
 // DeepSeek provider entry, and the anonymous-discovery Go ids mirror their
-// Zen provider entries.
+// Console provider entries.
 const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<Record<string, ModelSource>>>> = {
-  opencode: {},
+  opencode: {
+    // Mirrored from the `opencode-go` provider entry; served live on the
+    // Console (former Zen) gateway before models.dev catalogs it there.
+    "jev-1.13": {
+      id: "jev-1.13",
+      name: "Jev 1.13",
+      family: "jev",
+      limit: { context: 262_144, input: 196_608, output: 131_072 },
+      reasoning: true,
+      tool_call: true,
+      modalities: { input: ["text"] },
+      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
+    },
+    "jev-1.13-free": {
+      id: "jev-1.13-free",
+      name: "Jev 1.13 Free",
+      family: "jev",
+      limit: { context: 262_144, input: 196_608, output: 131_072 },
+      reasoning: true,
+      tool_call: true,
+      modalities: { input: ["text"] },
+      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
+    },
+  },
   "opencode-go": {
     "hy3-preview": {
       id: "hy3-preview",
@@ -133,6 +156,38 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       provider: { npm: "@ai-sdk/anthropic" },
       cost: { input: 0.2, output: 1.2, cache_read: 0.02 },
     },
+    "mimo-v2-pro": {
+      id: "mimo-v2-pro",
+      name: "MiMo-V2-Pro",
+      family: "mimo",
+      limit: { context: 1_048_576, output: 131_072 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      modalities: { input: ["text"] },
+    },
+    "mimo-v2-omni": {
+      id: "mimo-v2-omni",
+      name: "MiMo-V2-Omni",
+      family: "mimo",
+      limit: { context: 262_144, output: 131_072 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      attachment: true,
+      modalities: { input: ["text", "image", "audio", "video", "pdf"] },
+    },
+    "omen-alpha": {
+      id: "omen-alpha",
+      name: "Omen Alpha",
+      family: "omen",
+      limit: { context: 262_144, output: 65_536 },
+      reasoning: true,
+      reasoning_options: [{ type: "toggle" }],
+      tool_call: true,
+      attachment: true,
+      modalities: { input: ["text", "image"] },
+    },
   },
 };
 
@@ -167,10 +222,10 @@ export function parseCachedModelsDevSnapshot(value: unknown): ModelsDevSnapshot 
   const snapshot = asRecord(value);
   const providers = asRecord(snapshot?.providers);
   if (!snapshot || !validTimestamp(snapshot.fetchedAt) || !providers) return undefined;
-  const zen = normalizeProvider(providers.opencode, "opencode");
+  const consoleProvider = normalizeProvider(providers.opencode, "opencode");
   const go = normalizeProvider(providers["opencode-go"], "opencode-go");
-  if (!zen && !go) return undefined;
-  return { fetchedAt: snapshot.fetchedAt, providers: { opencode: zen, "opencode-go": go } };
+  if (!consoleProvider && !go) return undefined;
+  return { fetchedAt: snapshot.fetchedAt, providers: { opencode: consoleProvider, "opencode-go": go } };
 }
 
 export class ModelsDevMetadata {

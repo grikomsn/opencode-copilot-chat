@@ -4,14 +4,17 @@
 
 The extension discovers the catalog available to each configured provider entry
 from that gateway's live `models` endpoint: `https://opencode.ai/zen/v1/models`
-for Zen and `https://opencode.ai/zen/go/v1/models` for Go. Live responses
+for Console and `https://opencode.ai/zen/go/v1/models` for Go. (The paths retain
+the historical `zen` segment upstream; the former Zen gateway is now Console's
+pay-as-you-go inference service.) Live responses
 provide names, context windows, maximum output lengths, reasoning support and
 effort options, image input, and tool-calling support used by Copilot Chat.
-Zen free-tier entries can be filtered to cost-free models only.
+Console free-tier entries can be filtered to cost-free models only.
 
-Console entries skip public discovery: models come from the selected
+Console device-code profiles skip public discovery: models come from the selected
 organization's configuration on the Console server and never show public or
-other-organization models.
+other-organization models. Console service-account key entries use the public
+discovery catalog like Go.
 
 Fields the live responses omit are enriched from the canonical `opencode` and
 `opencode-go` providers in a six-hour models.dev snapshot
@@ -19,24 +22,25 @@ Fields the live responses omit are enriched from the canonical `opencode` and
 is returned immediately while refresh runs and remains available during
 models.dev outages. Models served by discovery before models.dev catalogs them
 use a small supplemental entry — currently the Go-only ids `hy3-preview`,
-`deepseek-flash`, `minimax-m2.5`, `kimi-k2.5`, `glm-5.1`, `glm-5`, and
-`qwen3.5-plus` —
+`deepseek-flash`, `minimax-m2.5`, `kimi-k2.5`, `glm-5.1`, `glm-5`,
+`qwen3.5-plus`, `mimo-v2-pro`, `mimo-v2-omni`, and `omen-alpha`, plus the
+Console-only ids `jev-1.13` and `jev-1.13-free` —
 which is superseded by the canonical upstream entry once it lands. Discovery
 also serves legacy alias ids (currently the Go id `deepseek-flash` for
 `deepseek-v4.1-flash`); the alias is hidden whenever the canonical id appears
 in the same discovery response.
 
-Successful Zen and Go catalog results are cached per entry (mode, free-only
+Successful Console and Go catalog results are cached per entry (mode, free-only
 scope, and a fingerprint of the credential) for up to 24 hours in
 `globalState`. When discovery fails or no key is configured, the extension
 falls back to the cached catalog and then to a bundled snapshot:
 
 | Gateway | Model | Context |
 | --- | --- | ---: |
-| Zen | DeepSeek V4 Flash Free | 200K |
-| Zen | Nemotron 3 Ultra Free | 1M |
-| Zen | Big Pickle | 200K |
-| Zen | Kimi K2.5 | 256K |
+| Console | DeepSeek V4 Flash Free | 200K |
+| Console | Nemotron 3 Ultra Free | 1M |
+| Console | Big Pickle | 200K |
+| Console | Kimi K2.5 | 256K |
 | Go | Kimi K2.6 | 256K |
 | Go | DeepSeek V4 Flash | 1M |
 | Go | MiniMax-M3 | 1M |

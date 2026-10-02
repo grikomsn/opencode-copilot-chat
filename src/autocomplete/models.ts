@@ -78,17 +78,17 @@ const ZEN_CANDIDATES: readonly InlineModelCandidate[] = [
   {
     id: "qwen3.6-plus",
     badge: "★ recommended · measured 1.4s TTFB",
-    detail: "Zero hidden reasoning with enable_thinking: false; pay-as-you-go Zen balance required.",
+    detail: "Zero hidden reasoning with enable_thinking: false; pay-as-you-go Console balance required.",
   },
   {
     id: "kimi-k2.5",
     badge: "measured 1.2s TTFB",
-    detail: "Zero hidden reasoning with thinking disabled; measured faster than the default on Zen.",
+    detail: "Zero hidden reasoning with thinking disabled; measured faster than the default on Console.",
   },
   {
     id: "qwen3.5-plus",
     badge: "measured 1.8s TTFB",
-    detail: "The original fork default; zero hidden reasoning, pay-as-you-go Zen balance required.",
+    detail: "The original fork default; zero hidden reasoning, pay-as-you-go Console balance required.",
   },
   {
     id: "glm-5.2",
@@ -99,7 +99,7 @@ const ZEN_CANDIDATES: readonly InlineModelCandidate[] = [
 
 export const INLINE_MODEL_CANDIDATES: Readonly<Record<InlineGateway, readonly InlineModelCandidate[]>> = {
   go: GO_CANDIDATES,
-  zen: ZEN_CANDIDATES,
+  console: ZEN_CANDIDATES,
 };
 
 export interface InlineModelChoice {

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAuthHeaders, buildRequestHeaders, DEFAULT_CONSOLE_SERVER, endpointUrl, resolveConsoleVerificationUrl, resolveEndpointKind } from "./protocol";
+import { apiBaseForMode, buildAuthHeaders, buildRequestHeaders, DEFAULT_CONSOLE_SERVER, endpointUrl, normalizeMode, resolveConsoleVerificationUrl, resolveEndpointKind } from "./protocol";
+
+test("maps legacy zen mode values onto the Console gateway", () => {
+  assert.equal(normalizeMode("zen"), "console");
+  assert.equal(normalizeMode("console"), "console");
+  assert.equal(normalizeMode("go"), "go");
+  assert.equal(normalizeMode(undefined), "console");
+  assert.equal(apiBaseForMode("console"), "https://opencode.ai/zen/v1");
+  assert.equal(apiBaseForMode("go"), "https://opencode.ai/zen/go/v1");
+});
 
 test("resolves Console device verification URLs onto the /console subpath", () => {
   const complete = "/console/device?user_code=ABCD-EFGH&client_id=opencode-cli";
@@ -37,12 +46,12 @@ test("catalog headers cannot override credentials or request identity", () => {
 
 test("routes known OpenCode model families to their native gateway shape", () => {
   assert.equal(resolveEndpointKind("gpt-5.6-luna", "go"), "responses");
-  assert.equal(resolveEndpointKind("gpt-6-astra", "zen"), "responses");
-  assert.equal(resolveEndpointKind("claude-fable-5", "zen"), "messages");
-  assert.equal(resolveEndpointKind("gemini-3.5-flash", "zen"), "google");
+  assert.equal(resolveEndpointKind("gpt-6-astra", "console"), "responses");
+  assert.equal(resolveEndpointKind("claude-fable-5", "console"), "messages");
+  assert.equal(resolveEndpointKind("gemini-3.5-flash", "console"), "google");
   assert.equal(resolveEndpointKind("grok-4.6", "go"), "responses");
-  assert.equal(resolveEndpointKind("grok-build-0.1", "zen"), "responses");
-  assert.equal(resolveEndpointKind("muse-spark-1.3", "zen"), "responses");
+  assert.equal(resolveEndpointKind("grok-build-0.1", "console"), "responses");
+  assert.equal(resolveEndpointKind("muse-spark-1.3", "console"), "responses");
   assert.equal(resolveEndpointKind("muse-spark-1.2-contributor", "go"), "responses");
   assert.equal(resolveEndpointKind("minimax-m2.7", "go"), "messages");
   assert.equal(resolveEndpointKind("minimax-m3", "go"), "messages");
@@ -50,7 +59,7 @@ test("routes known OpenCode model families to their native gateway shape", () =>
   assert.equal(resolveEndpointKind("qwen3.7-max", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.8-max", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.8-flash", "go"), "messages");
-  assert.equal(resolveEndpointKind("qwen3.6-plus", "zen"), "messages");
+  assert.equal(resolveEndpointKind("qwen3.6-plus", "console"), "messages");
   assert.equal(resolveEndpointKind("qwen3.5-plus", "go"), "messages");
   // Orvix-style dashed qwen ids route like their OpenCode spellings.
   assert.equal(resolveEndpointKind("qwen-3.8-max", "go"), "messages");
@@ -59,11 +68,11 @@ test("routes known OpenCode model families to their native gateway shape", () =>
   // models.dev package name is missing.
   assert.equal(resolveEndpointKind("grok-5", "go"), "responses");
   assert.equal(resolveEndpointKind("qwen3.9-coder", "go"), "messages");
-  assert.equal(resolveEndpointKind("qwen3.6-plus-free", "zen"), "messages");
+  assert.equal(resolveEndpointKind("qwen3.6-plus-free", "console"), "messages");
 });
 
 test("keeps undiscovered families on the shared chat completions shape", () => {
-  assert.equal(resolveEndpointKind("minimax-m3", "zen"), "chat-completions");
+  assert.equal(resolveEndpointKind("minimax-m3", "console"), "chat-completions");
   assert.equal(resolveEndpointKind("glm-5.3", "go"), "chat-completions");
   assert.equal(resolveEndpointKind("kimi-k3", "go"), "chat-completions");
   assert.equal(resolveEndpointKind("deepseek-v4-pro", "go"), "chat-completions");
@@ -73,8 +82,8 @@ test("keeps undiscovered families on the shared chat completions shape", () => {
   assert.equal(resolveEndpointKind("longcat-2.0", "go"), "chat-completions");
   assert.equal(resolveEndpointKind("mimo-v2.5", "go"), "chat-completions");
   assert.equal(resolveEndpointKind("omen-alpha", "go"), "chat-completions");
-  assert.equal(resolveEndpointKind("big-pickle", "zen"), "chat-completions");
-  assert.equal(resolveEndpointKind("nemotron-3-ultra-free", "zen"), "chat-completions");
+  assert.equal(resolveEndpointKind("big-pickle", "console"), "chat-completions");
+  assert.equal(resolveEndpointKind("nemotron-3-ultra-free", "console"), "chat-completions");
   assert.equal(resolveEndpointKind("gemini-3.5-flash", "go"), "chat-completions");
 });
 

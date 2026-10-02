@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { catalogScope, ModelCatalog, modelsFromProvider } from "./catalog";
 
-test("filters deprecated and paid Zen models when free-only is enabled", () => {
-  const models = modelsFromProvider("zen", "opencode", { api: "https://example.test/v1" }, {
+test("filters deprecated and paid Console models when free-only is enabled", () => {
+  const models = modelsFromProvider("console", "opencode", { api: "https://example.test/v1" }, {
     free: { id: "free", name: "Free", limit: { context: 100, output: 50 }, reasoning: true, tool_call: true, cost: { input: 0 } },
     paid: { id: "paid", limit: { context: 100, output: 50 }, cost: { input: 1 } },
     old: { id: "old", status: "deprecated", limit: { context: 100, output: 50 } },
@@ -12,7 +12,7 @@ test("filters deprecated and paid Zen models when free-only is enabled", () => {
 });
 
 test("filters internal smoke-test ids leaked into discovery", () => {
-  const models = modelsFromProvider("zen", "opencode", { api: "https://example.test/v1" }, {
+  const models = modelsFromProvider("console", "opencode", { api: "https://example.test/v1" }, {
     test: { id: "test" },
     "test-novita-dsf4.1": { id: "test-novita-dsf4.1" },
     "test-model": { id: "test-model" },
@@ -48,7 +48,7 @@ test("uses authenticated live models and enriches fields from models.dev", async
       live: { id: "live", name: "Metadata Name", limit: { context: 1000, output: 50 }, reasoning: true, tool_call: true },
       stale: { id: "stale" },
     } } })));
-  const models = await catalog.refresh("zen", { mode: "zen", token: "token" }, false);
+  const models = await catalog.refresh("console", { mode: "console", token: "token" }, false);
   assert.deepEqual(models.map((model) => model.id), ["live"]);
   assert.deepEqual({ name: models[0].name, context: models[0].contextLength, output: models[0].maxOutputTokens, tools: models[0].toolCalling }, {
     name: "Live Name",
@@ -70,7 +70,7 @@ test("uses the live public catalog without credentials and excludes stale metada
       removed: { id: "removed", name: "Removed" },
     } } });
   });
-  const models = await catalog.refresh("zen", undefined, false);
+  const models = await catalog.refresh("console", undefined, false);
   assert.deepEqual(models.map((model) => model.id), ["current"]);
   assert.equal(models[0].name, "Current");
   assert.equal(authorization, null);
@@ -136,9 +136,9 @@ test("restores a recent authenticated catalog cache when refresh fails", async (
   const fetcher = async (input: RequestInfo | URL) => String(input).endsWith("/models")
     ? new Response(JSON.stringify({ data: [{ id: "cached" }] }))
     : new Response(JSON.stringify({ opencode: { models: { cached: { id: "cached" } } } }));
-  await new ModelCatalog(fetcher, cache).refresh("zen", { mode: "zen", token: "token" }, false);
+  await new ModelCatalog(fetcher, cache).refresh("console", { mode: "console", token: "token" }, false);
   const catalog = new ModelCatalog(async () => new Response("no", { status: 503 }), cache);
-  assert.deepEqual((await catalog.refreshSafely("zen", { mode: "zen", token: "token" }, false)).map((item) => item.id), ["cached"]);
+  assert.deepEqual((await catalog.refreshSafely("console", { mode: "console", token: "token" }, false)).map((item) => item.id), ["cached"]);
 });
 
 test("resolves Console models from the organization configuration", async () => {
@@ -153,6 +153,28 @@ test("resolves Console models from the organization configuration", async () => 
   assert.deepEqual(models.map((model) => model.id), ["allowed"]);
   assert.equal(models[0].providerId, "opencode");
   assert.equal(requestedHeaders?.get("x-org-id"), "org");
+});
+
+test("excludes other Console-managed providers such as opencode-go from the Console group", async () => {
+  const catalog = new ModelCatalog(async () => new Response(JSON.stringify({ config: { provider: {
+    opencode: { models: { "glm-5.3": { id: "glm-5.3", name: "GLM-5.3", limit: { context: 1000, output: 100 } } } },
+    "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", name: "Kimi K3", limit: { context: 1000, output: 100 } } } },
+    openai: { models: { "gpt-5": { id: "gpt-5", name: "GPT-5", limit: { context: 1000, output: 100 } } } },
+  } } })));
+  const models = await catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["glm-5.3"]);
+  assert.equal(models[0].providerId, "opencode");
+});
+
+test("returns no Console models when the organization config omits the opencode provider", async () => {
+  const catalog = new ModelCatalog(async () => new Response(JSON.stringify({ config: { provider: {
+    "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", limit: { context: 1000, output: 100 } } } },
+  } } })));
+  await assert.rejects(
+    () => catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false),
+    /no usable models/,
+  );
+  assert.deepEqual(catalog.list("console"), []);
 });
 
 test("never falls back to a public model list for Console", async () => {
@@ -173,12 +195,12 @@ test("invalidates a fresh Console catalog when the active organization changes",
 });
 
 test("invalidates a fresh public catalog when the authenticated account changes", async () => {
-  const first = { mode: "zen" as const, token: "first" };
-  const second = { mode: "zen" as const, token: "second" };
+  const first = { mode: "console" as const, token: "first" };
+  const second = { mode: "console" as const, token: "second" };
   const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
     ? Response.json({ data: [{ id: "live" }] })
     : Response.json({ opencode: { models: { live: { id: "live" } } } }));
-  await catalog.refresh("zen", first, false);
-  assert.equal(catalog.isFresh("zen", 60_000, catalogScope("zen", first, false)), true);
-  assert.equal(catalog.isFresh("zen", 60_000, catalogScope("zen", second, false)), false);
+  await catalog.refresh("console", first, false);
+  assert.equal(catalog.isFresh("console", 60_000, catalogScope("console", first, false)), true);
+  assert.equal(catalog.isFresh("console", 60_000, catalogScope("console", second, false)), false);
 });

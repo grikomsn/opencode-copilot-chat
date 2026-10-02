@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { DEFAULT_INLINE_GATEWAY, DEFAULT_INLINE_MODEL, INLINE_SUGGESTIONS_GATEWAY_SETTING, INLINE_SUGGESTIONS_MODEL_SETTING, parseInlineGateway } from "../autocomplete/config";
+import { DEFAULT_INLINE_GATEWAY, DEFAULT_INLINE_MODEL, INLINE_SUGGESTIONS_GATEWAY_SETTING, INLINE_SUGGESTIONS_MODEL_SETTING, parseInlineGateway, type InlineGateway } from "../autocomplete/config";
 import { inlineModelChoicesForGateway } from "../autocomplete/models";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type ConsoleOrg } from "../auth/auth";
 import { messageOf } from "../errors";
@@ -18,9 +18,8 @@ export function registerCommands(
 ): vscode.Disposable[] {
   return [
     vscode.commands.registerCommand("opencodeCopilot.manage", () => manage(auth, providers, output)),
-    vscode.commands.registerCommand("opencodeCopilot.manageZen", () => manage(auth, providers, output, "zen")),
-    vscode.commands.registerCommand("opencodeCopilot.manageGo", () => manage(auth, providers, output, "go")),
     vscode.commands.registerCommand("opencodeCopilot.manageConsole", () => manage(auth, providers, output, "console")),
+    vscode.commands.registerCommand("opencodeCopilot.manageGo", () => manage(auth, providers, output, "go")),
     vscode.commands.registerCommand("opencodeCopilot.addConsoleAccount", () => addConsoleAccount(auth, providers.console, output)),
     vscode.commands.registerCommand("opencodeCopilot.selectConsoleProfile", () => selectConsoleProfile(auth, providers.console)),
     vscode.commands.registerCommand("opencodeCopilot.setInlineSuggestionsModel", () => setInlineSuggestionsModel()),
@@ -49,9 +48,10 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         { label: "$(output) Show OpenCode logs", action: "logs" },
       ]
     : [
-        { label: "$(key) Sign in with OpenCode Zen API key", action: "zen" },
-        { label: "$(key) Sign in with OpenCode Go API key", action: "go" },
-        { label: "$(device-mobile) Sign in with OpenCode Console device code", action: "console" },
+        { label: "$(key) Sign in with an OpenCode service-account API key", action: "console" },
+        { label: "$(device-mobile) Sign in with an OpenCode Console account (device code)", action: "console-device" },
+        { label: "$(key) Sign in with an OpenCode Go service-account API key", action: "go" },
+        { label: "$(device-mobile) Sign in with an OpenCode Go Console account (device code)", action: "go-device" },
         { label: "$(add) Add named Console account", action: "addConsole" },
         { label: "$(account) Select Console profile for usage and management", action: "profile" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
@@ -68,25 +68,32 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
   else if (picked.action === "signout") await signOut(auth, provider, mode, profile);
   else if (picked.action === "switch") await chooseModeAndSignIn(auth, providers, output);
-  else if (picked.action === "zen" || picked.action === "go") await signInWithApiKey(auth, providers[picked.action], picked.action);
-  else if (picked.action === "console") await signInWithConsole(auth, providers.console, output, profile);
+  else if (picked.action === "console") await signInWithApiKey(auth, providers.console, "console");
+  else if (picked.action === "console-device") await signInWithConsole(auth, providers.console, output, profile);
+  else if (picked.action === "go") await signInWithApiKey(auth, providers.go, "go");
+  else if (picked.action === "go-device") await signInWithConsoleForMode(auth, providers.go, output, "go");
 }
 
 async function chooseModeAndSignIn(auth: OpenCodeAuth, providers: OpenCodeProviders, output: vscode.OutputChannel): Promise<void> {
   const picked = await vscode.window.showQuickPick([
-    { label: "OpenCode Zen API key", mode: "zen" as const },
-    { label: "OpenCode Go API key", mode: "go" as const },
-    { label: "OpenCode Console device code", mode: "console" as const },
+    { label: "OpenCode Console service-account API key", mode: "console" as const, device: false },
+    { label: "OpenCode Console account (device code)", mode: "console" as const, device: true },
+    { label: "OpenCode Go service-account API key", mode: "go" as const, device: false },
+    { label: "OpenCode Go Console account (device code)", mode: "go" as const, device: true },
   ], { title: "Choose an OpenCode credential mode" });
   if (!picked) return;
-  if (picked.mode === "console") await signInWithConsole(auth, providers.console, output);
-  else await signInWithApiKey(auth, providers[picked.mode], picked.mode);
+  if (picked.device) {
+    if (picked.mode === "go") await signInWithConsoleForMode(auth, providers.go, output, "go");
+    else await signInWithConsole(auth, providers.console, output);
+  } else {
+    await signInWithApiKey(auth, providers[picked.mode], picked.mode);
+  }
 }
 
-async function signInWithApiKey(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: "zen" | "go"): Promise<void> {
+async function signInWithApiKey(auth: OpenCodeAuth, provider: OpenCodeProvider, mode: OpenCodeMode): Promise<void> {
   const key = await vscode.window.showInputBox({
-    title: `OpenCode ${label(mode)} API key`,
-    prompt: `Paste your OpenCode ${label(mode)} API key`,
+    title: `OpenCode ${label(mode)} service-account API key`,
+    prompt: `Paste your OpenCode ${label(mode)} service-account API key (create one in the OpenCode Console)`,
     password: true,
     ignoreFocusOut: true,
     validateInput: (value) => value.trim() ? undefined : "An API key is required",
@@ -135,6 +142,47 @@ async function signInWithConsole(
   } catch (error) {
     output.appendLine(`[console] ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode Console sign-in failed: ${messageOf(error)}`);
+  }
+}
+
+/**
+ * Device-code sign-in that targets the Go gateway: the OpenCode Console
+ * account authenticates the user, then the Go provider refreshes models with
+ * the Console session token. Go subscriptions and keys are managed in the
+ * Console, so both providers share one account flow.
+ */
+async function signInWithConsoleForMode(
+  auth: OpenCodeAuth,
+  provider: OpenCodeProvider,
+  output: vscode.OutputChannel,
+  mode: "go",
+): Promise<void> {
+  let device: Awaited<ReturnType<OpenCodeAuth["requestDeviceCode"]>> | undefined;
+  try {
+    device = await auth.requestDeviceCode();
+    await vscode.env.clipboard.writeText(device.userCode);
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(device.verificationUrl));
+    if (!opened) throw new Error(`Open ${device.verificationUrl} and enter code ${device.userCode}`);
+    vscode.window.showInformationMessage(`OpenCode Console code ${device.userCode} copied to the clipboard.`);
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Waiting for OpenCode Console sign-in…", cancellable: true },
+      async (_progress, cancellation) => {
+        const controller = new AbortController();
+        const listener = cancellation.onCancellationRequested(() => controller.abort());
+        try { await auth.completeDeviceSignIn(device!, controller.signal); }
+        finally { listener.dispose(); }
+      },
+    );
+    const session = await auth.getConsoleSession();
+    if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
+    await chooseOrganization(auth, session.orgs);
+    await setMode("go");
+    const models = await provider.refreshModels();
+    const selected = await auth.getConsoleSession();
+    vscode.window.showInformationMessage(`OpenCode ${label(mode)} connected with the Console account${selected?.orgName ? ` ${selected.orgName}` : ""}. Found ${models.length} models.`);
+  } catch (error) {
+    output.appendLine(`[console] ${messageOf(error)}`);
+    vscode.window.showErrorMessage(`OpenCode ${label(mode)} sign-in failed: ${messageOf(error)}`);
   }
 }
 
@@ -224,7 +272,7 @@ async function refreshModels(provider: OpenCodeProvider): Promise<void> {
 }
 
 interface InlineModelPickItem extends vscode.QuickPickItem {
-  readonly action?: { readonly id: string; readonly gateway: "zen" | "go" } | "custom";
+  readonly action?: { readonly id: string; readonly gateway: InlineGateway } | "custom";
 }
 
 async function setInlineSuggestionsModel(): Promise<void> {
@@ -243,7 +291,7 @@ async function setInlineSuggestionsModel(): Promise<void> {
     { label: "$(pencil) Use a custom model id…", detail: "Enter any model id available on the selected gateway.", action: "custom" },
   ], {
     title: "OpenCode — Set Inline Suggestions Model",
-    placeHolder: `Current: ${current} (via OpenCode ${gateway === "zen" ? "Zen" : "Go"})`,
+    placeHolder: `Current: ${current} (via OpenCode ${gateway === "console" ? "Console" : "Go"})`,
   });
   if (!picked) return;
   if (picked.action === "custom") {
@@ -262,7 +310,7 @@ async function setInlineSuggestionsModel(): Promise<void> {
   let suffix = "";
   if (picked.action.gateway !== gateway) {
     await configuration.update(INLINE_SUGGESTIONS_GATEWAY_SETTING, picked.action.gateway, vscode.ConfigurationTarget.Global);
-    suffix = ` and switched the gateway to OpenCode ${picked.action.gateway === "zen" ? "Zen" : "Go"}`;
+    suffix = ` and switched the gateway to OpenCode ${picked.action.gateway === "console" ? "Console" : "Go"}`;
   }
   void vscode.window.showInformationMessage(`OpenCode inline suggestions model set to ${picked.action.id}${suffix}. Applies on the next keystroke.`);
 }
@@ -305,7 +353,7 @@ function toUsageQuickPickItem(row: UsageDisplayRow): UsageQuickPickItem {
 }
 
 async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Promise<void> {
-  const modes: readonly OpenCodeMode[] = ["zen", "go", "console"];
+  const modes: readonly OpenCodeMode[] = ["console", "go"];
   const modelGroups = await Promise.all(modes.map(async (mode) => ({
     mode,
     models: await vscode.lm.selectChatModels({ vendor: OPENCODE_PROVIDER_DEFINITIONS[mode].vendor }),
@@ -313,12 +361,14 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
   const profiles = await auth.listConsoleProfiles();
   const activeConsole = providers.console.getActiveProfile();
   const session = await auth.getConsoleSession(activeConsole);
+  const apiKeys = await auth.getApiKeys();
   const lines = [
     "# OpenCode for Copilot Chat diagnostics", "", `- VS Code: ${vscode.version}`,
     `- Console profiles: ${profiles.length ? profiles.join(", ") : "none"}`,
     `- Active Console profile: ${activeConsole}`,
     `- Active Console session: ${session ? "present" : "missing"}`,
-    `- Console organization selected: ${session?.orgId ? "yes" : "no"}`, "",
+    `- Console organization selected: ${session?.orgId ? "yes" : "no"}`,
+    `- Service-account API keys stored: ${[apiKeys.console ? "console" : undefined, apiKeys.go ? "go" : undefined].filter(Boolean).join(", ") || "none"}`, "",
     ...(await Promise.all(modelGroups.map(async ({ mode, models }) => [
       `## OpenCode ${label(mode)}`,
       "",
@@ -335,12 +385,13 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
 }
 
 function currentMode(): OpenCodeMode {
-  const value = vscode.workspace.getConfiguration("opencode").get<string>("defaultMode", "zen");
-  return value === "go" || value === "console" ? value : "zen";
+  const value = vscode.workspace.getConfiguration("opencode").get<string>("defaultMode", "console");
+  // Legacy `zen` persisted values map onto the Console provider.
+  return value === "go" ? "go" : "console";
 }
 
 async function setMode(mode: OpenCodeMode): Promise<void> {
   await vscode.workspace.getConfiguration("opencode").update("defaultMode", mode, vscode.ConfigurationTarget.Global);
 }
 
-function label(mode: OpenCodeMode): string { return mode === "go" ? "Go" : mode === "console" ? "Console" : "Zen"; }
+function label(mode: OpenCodeMode): string { return mode === "go" ? "Go" : "Console"; }

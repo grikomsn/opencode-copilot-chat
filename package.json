@@ -1,7 +1,7 @@
 {
   "name": "opencode-bridge-copilot-chat",
   "displayName": "OpenCode for Copilot Chat",
-  "description": "Use OpenCode Zen, Go, and Console models in GitHub Copilot Chat.",
+  "description": "Use OpenCode Console and Go models in GitHub Copilot Chat.",
   "version": "0.7.3",
   "publisher": "grikomsn",
   "license": "MIT",
@@ -24,7 +24,6 @@
   ],
   "keywords": [
     "opencode",
-    "zen",
     "opencode-go",
     "console",
     "copilot",
@@ -36,7 +35,6 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onLanguageModelChatProvider:opencodezen",
     "onLanguageModelChatProvider:opencodego",
     "onLanguageModelChatProvider:opencodeconsole"
   ],
@@ -52,16 +50,12 @@
         "title": "OpenCode: Manage Connection"
       },
       {
-        "command": "opencodeCopilot.manageZen",
-        "title": "OpenCode Zen: Manage Connection"
+        "command": "opencodeCopilot.manageConsole",
+        "title": "OpenCode Console: Manage Connection"
       },
       {
         "command": "opencodeCopilot.manageGo",
         "title": "OpenCode Go: Manage Connection"
-      },
-      {
-        "command": "opencodeCopilot.manageConsole",
-        "title": "OpenCode Console: Manage Connection"
       },
       {
         "command": "opencodeCopilot.addConsoleAccount",
@@ -94,22 +88,20 @@
         "opencode.defaultMode": {
           "type": "string",
           "enum": [
-            "zen",
-            "go",
-            "console"
+            "console",
+            "go"
           ],
-          "default": "zen",
+          "default": "console",
           "enumDescriptions": [
-            "Target OpenCode Zen for generic connection, refresh, and test commands",
-            "Target OpenCode Go for generic connection, refresh, and test commands",
-            "Target OpenCode Console for generic connection, refresh, and test commands"
+            "Target OpenCode Console for generic connection, refresh, and test commands",
+            "Target OpenCode Go for generic connection, refresh, and test commands"
           ],
-          "description": "OpenCode group targeted by generic connection, refresh, and test commands. Zen, Go, and Console models remain visible as separate provider groups."
+          "description": "OpenCode group targeted by generic connection, refresh, and test commands. Console and Go models remain visible as separate provider groups. The legacy zen value is treated as console."
         },
         "opencode.freeOnly": {
           "type": "boolean",
           "default": true,
-          "description": "Show only zero-cost OpenCode Zen models in the model picker."
+          "description": "Show only zero-cost OpenCode Console models in the model picker."
         },
         "opencode.inlineSuggestions": {
           "type": "boolean",
@@ -120,19 +112,19 @@
           "type": "string",
           "enum": [
             "go",
-            "zen"
+            "console"
           ],
           "default": "go",
           "enumDescriptions": [
             "Send inline completion requests through OpenCode Go",
-            "Send inline completion requests through OpenCode Zen"
+            "Send inline completion requests through OpenCode Console"
           ],
-          "description": "OpenCode gateway used for inline completion requests, independent of the chat provider in use."
+          "description": "OpenCode gateway used for inline completion requests, independent of the chat provider in use. The legacy zen value is treated as console."
         },
         "opencode.inlineSuggestionsModel": {
           "type": "string",
           "default": "qwen3.7-plus",
-          "description": "Model id used for inline completions. Choose a model with a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Zen); reasoning-first models are too slow for ghost text."
+          "description": "Model id used for inline completions. Choose a model with a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Console); reasoning-first models are too slow for ghost text."
         },
         "opencode.inlineSuggestionsChatInput": {
           "type": "boolean",
@@ -371,19 +363,23 @@
     },
     "languageModelChatProviders": [
       {
-        "vendor": "opencodezen",
-        "displayName": "OpenCode Zen",
+        "vendor": "opencodeconsole",
+        "displayName": "OpenCode Console",
         "configuration": {
           "type": "object",
-          "required": [
-            "apiKey"
-          ],
           "properties": {
             "apiKey": {
               "type": "string",
-              "title": "OpenCode Zen API Key",
-              "description": "API key for this OpenCode Zen provider entry.",
+              "title": "OpenCode Service Account API Key",
+              "description": "Service-account API key for this OpenCode Console provider entry. Takes precedence over device-code profiles.",
               "secret": true
+            },
+            "profile": {
+              "type": "string",
+              "title": "OpenCode Console Profile",
+              "description": "Profile ID created with OpenCode: Add Console Account (device-code sign-in). Used when no API key is set.",
+              "default": "default",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
             }
           }
         }
@@ -400,24 +396,8 @@
             "apiKey": {
               "type": "string",
               "title": "OpenCode Go API Key",
-              "description": "API key for this OpenCode Go provider entry.",
+              "description": "Service-account API key for this OpenCode Go provider entry.",
               "secret": true
-            }
-          }
-        }
-      },
-      {
-        "vendor": "opencodeconsole",
-        "displayName": "OpenCode Console",
-        "configuration": {
-          "type": "object",
-          "properties": {
-            "profile": {
-              "type": "string",
-              "title": "OpenCode Console Profile",
-              "description": "Profile ID created with OpenCode: Add Console Account.",
-              "default": "default",
-              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
             }
           }
         }

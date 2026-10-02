@@ -4,7 +4,7 @@ import { DEFAULT_INLINE_GATEWAY, DEFAULT_INLINE_MODEL } from "./config";
 import { inlineModelChoicesForGateway, INLINE_MODEL_CANDIDATES } from "./models";
 
 test("both gateways expose candidates with the recommended default first", () => {
-  for (const gateway of ["go", "zen"] as const) {
+  for (const gateway of ["go", "console"] as const) {
     const candidates = INLINE_MODEL_CANDIDATES[gateway];
     assert.ok(candidates.length >= 2, `${gateway} should list alternatives`);
     assert.equal(candidates[0]?.badge.includes("★ recommended"), true, `${gateway} should lead with a recommendation`);
@@ -14,7 +14,7 @@ test("both gateways expose candidates with the recommended default first", () =>
 
 test("default gateway candidate matches the configured default gateway", () => {
   assert.equal(INLINE_MODEL_CANDIDATES[DEFAULT_INLINE_GATEWAY][0]?.id, "qwen3.7-plus");
-  assert.equal(INLINE_MODEL_CANDIDATES.zen[0]?.id, "qwen3.6-plus");
+  assert.equal(INLINE_MODEL_CANDIDATES.console[0]?.id, "qwen3.6-plus");
 });
 
 test("every candidate carries a badge and a rationale", () => {

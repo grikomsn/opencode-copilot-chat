@@ -2,7 +2,6 @@ import { apiBaseForMode, resolveEndpointKind, type EndpointKind, type OpenCodeMo
 import type { Credential } from "../auth/auth";
 import { ALIAS_MODELS, ModelsDevMetadata, type MetadataCache, type ModelSource, type ProviderSource } from "./metadata";
 import type { ModelCost } from "./pricing";
-
 export interface OpenCodeModel {
   id: string;
   rawModelId: string;
@@ -70,14 +69,15 @@ export class ModelCatalog {
   }
 
   async refresh(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean, signal?: AbortSignal): Promise<OpenCodeModel[]> {
-    const models = mode === "console"
+    const orgScoped = mode === "console" && !credentialIsApiKey(credential ?? { mode, token: "" });
+    const models = mode === "console" && credential?.server && !credentialIsApiKey(credential)
       ? await this.loadConsole(credential, signal)
       : await this.loadPublic(mode, credential, freeOnly, signal);
     if (!models.length) throw new Error(`OpenCode ${mode} returned no usable models`);
     this.current.set(mode, models);
     this.refreshedAt.set(mode, Date.now());
     this.scopes.set(mode, catalogScope(mode, credential, freeOnly));
-    if (mode !== "console") {
+    if (!orgScoped) {
       try { await this.cache.update(cacheKey(mode, credential, freeOnly), { updatedAt: Date.now(), models }); }
       catch { /* Catalog availability must not depend on persistence. */ }
     }
@@ -88,7 +88,7 @@ export class ModelCatalog {
     try {
       return await this.refresh(mode, credential, freeOnly, signal);
     } catch {
-      if (mode === "console") {
+      if (mode === "console" && credential && credentialIsApiKey(credential) === false) {
         // Never expose a public or stale model list for an organization-scoped
         // catalog. An empty picker is safer than showing models from another
         // organization when the selected organization's config is unavailable.
@@ -108,7 +108,7 @@ export class ModelCatalog {
     }
   }
 
-  private async loadPublic(mode: "zen" | "go", credential: Credential | undefined, freeOnly: boolean, signal?: AbortSignal): Promise<OpenCodeModel[]> {
+  private async loadPublic(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean, signal?: AbortSignal): Promise<OpenCodeModel[]> {
     const providerId = mode === "go" ? "opencode-go" : "opencode";
     const snapshot = await this.metadata.getOrRefresh();
     const provider = snapshot.providers[providerId];
@@ -120,10 +120,10 @@ export class ModelCatalog {
     for (const [alias, canonical] of Object.entries(ALIAS_MODELS[providerId])) {
       if (alias in combined && canonical in combined) delete combined[alias];
     }
-    return modelsFromProvider(mode, providerId, provider ?? { id: providerId }, combined, freeOnly && mode === "zen");
+    return modelsFromProvider(mode, providerId, provider ?? { id: providerId }, combined, freeOnly && mode === "console");
   }
 
-  private async loadLiveModels(mode: "zen" | "go", token: string | undefined, signal?: AbortSignal): Promise<Record<string, ModelSource>> {
+  private async loadLiveModels(mode: OpenCodeMode, token: string | undefined, signal?: AbortSignal): Promise<Record<string, ModelSource>> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
     const response = await this.fetcher(`${apiBaseForMode(mode).replace(/\/+$/, "")}/models`, {
@@ -142,8 +142,8 @@ export class ModelCatalog {
     return models;
   }
 
-  private async loadConsole(credential: Credential | undefined, signal?: AbortSignal): Promise<OpenCodeModel[]> {
-    if (!credential?.token || !credential.server) throw new Error("Sign in to OpenCode Console before loading organization models");
+  private async loadConsole(credential: Credential, signal?: AbortSignal): Promise<OpenCodeModel[]> {
+    if (!credential.token || !credential.server) throw new Error("Sign in to OpenCode Console before loading organization models");
     if (!credential.orgId) throw new Error("Select an OpenCode Console organization before loading models");
     const headers: Record<string, string> = { Accept: "application/json", Authorization: `Bearer ${credential.token}` };
     headers["x-org-id"] = credential.orgId;
@@ -152,14 +152,26 @@ export class ModelCatalog {
     if (!response.ok) throw new Error(`OpenCode Console model configuration failed (${response.status})`);
     const payload = await response.json() as { config?: { provider?: Record<string, ProviderSource> } };
     const providers = payload.config?.provider ?? {};
-    const entries = Object.entries(providers).flatMap(([id, provider]) => {
-      const models = provider.models ?? {};
-      return modelsFromProvider("console", id, provider, models, false);
-    });
+    // The org config lists every provider the Console manages, including
+    // `opencode-go` and BYOK entries. The Console model group serves the
+    // pay-as-you-go gateway only; Go has its own provider group and public
+    // discovery, so other provider ids are excluded here.
+    const primary = providers.opencode;
+    if (!primary) return [];
+    const entries = modelsFromProvider("console", "opencode", primary, primary.models ?? {}, false);
     const counts = new Map<string, number>();
     for (const model of entries) counts.set(model.rawModelId, (counts.get(model.rawModelId) ?? 0) + 1);
     return entries.map((model) => counts.get(model.rawModelId)! > 1 ? { ...model, id: `${model.providerId}/${model.rawModelId}` } : model);
   }
+}
+
+/**
+ * Device-flow Console credentials carry the Console server and organization
+ * metadata; service-account API keys are bare tokens. Only session
+ * credentials can load the organization-scoped config catalog.
+ */
+function credentialIsApiKey(credential: Credential | undefined): boolean {
+  return !credential?.server;
 }
 
 export function modelsFromProvider(
@@ -174,7 +186,7 @@ export function modelsFromProvider(
     if (isInternalTestModel(rawId)) return [];
     if (freeOnly && (source.cost?.input ?? 1) > 0) return [];
     const packageName = source.provider?.npm ?? provider.npm;
-    const baseUrl = source.provider?.api ?? provider.api ?? apiBaseForMode(mode === "console" ? "zen" : mode);
+    const baseUrl = source.provider?.api ?? provider.api ?? apiBaseForMode(mode);
     const contextLength = positive(source.limit?.context, 32768);
     const maxOutputTokens = positive(source.limit?.output, Math.min(contextLength, 8192));
     const modelId = source.id ?? rawId;
@@ -215,11 +227,11 @@ function completeCost(cost: ModelSource["cost"]): ModelCost | undefined {
 }
 
 export function catalogScope(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean): string {
-  if (mode === "console") return `${mode}:${credential?.server ?? ""}:${credential?.orgId ?? ""}`;
+  if (mode === "console" && credential?.server) return `${mode}:${credential.server}:${credential.orgId ?? ""}`;
   return `${mode}:${freeOnly ? "free" : "all"}:${credential?.token ? tokenFingerprint(credential.token) : "anonymous"}`;
 }
 
-function cacheKey(mode: "zen" | "go", credential: Credential | undefined, freeOnly: boolean): string {
+function cacheKey(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean): string {
   return `${CACHE_KEY_PREFIX}:${catalogScope(mode, credential, freeOnly)}`;
 }
 
