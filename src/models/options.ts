@@ -266,7 +266,9 @@ function thinkingFamily(modelId: string, catalogFamily?: string): ThinkingFamily
   if (id.startsWith("kimi-")) return "kimi";
   if (id.startsWith("minimax-")) return "minimax";
   if (id.startsWith("mimo-")) return "mimo";
-  if (/^qwen3(?:\.|-)/.test(id)) return "qwen";
+  // Dash placement differs across gateways: Orvix lists `qwen-3.8-max` where
+  // OpenCode discovery, models.dev, and aiand use `qwen3.8-max`.
+  if (/^qwen3(?:\.|-)/.test(id) || /^qwen-\d/.test(id)) return "qwen";
   if (family === "gpt" || family.startsWith("gpt-") || family === "openai") return "openai";
   if (family.startsWith("deepseek")) return "deepseek";
   if (family.startsWith("glm")) return "glm";

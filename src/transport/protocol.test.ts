@@ -52,6 +52,9 @@ test("routes known OpenCode model families to their native gateway shape", () =>
   assert.equal(resolveEndpointKind("qwen3.8-flash", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.6-plus", "zen"), "messages");
   assert.equal(resolveEndpointKind("qwen3.5-plus", "go"), "messages");
+  // Orvix-style dashed qwen ids route like their OpenCode spellings.
+  assert.equal(resolveEndpointKind("qwen-3.8-max", "go"), "messages");
+  assert.equal(resolveEndpointKind("qwen-3.8-flash", "go"), "messages");
   // Future ids of a routed family stay on the family shape even when the
   // models.dev package name is missing.
   assert.equal(resolveEndpointKind("grok-5", "go"), "responses");
