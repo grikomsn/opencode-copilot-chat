@@ -21,7 +21,7 @@ test("converts USD per-million rates to VS Code pricing fields", () => {
 });
 
 test("uses official fallback rates and recognizes rotating free models", () => {
-  assert.deepEqual(openCodeModelCost("deepseek-v4-flash"), { input: 0.22, cacheRead: 0.007, output: 0.66 });
+  assert.deepEqual(openCodeModelCost("deepseek-v4-flash"), { input: 0.15, cacheRead: 0.003, output: 0.6 });
   assert.deepEqual(openCodeModelCost("mimo-v2.5-free"), { input: 0, cacheRead: 0, output: 0 });
   assert.equal(openCodeModelCost("future-model"), undefined);
 });

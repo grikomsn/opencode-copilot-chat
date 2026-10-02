@@ -14,7 +14,7 @@ export interface ModelPricingFields {
 
 const OFFICIAL_MODEL_COSTS: Readonly<Record<string, ModelCost>> = {
   "kimi-k2.6": { input: 0.95, cacheRead: 0.16, output: 4 },
-  "deepseek-v4-flash": { input: 0.22, cacheRead: 0.007, output: 0.66 },
+  "deepseek-v4-flash": { input: 0.15, cacheRead: 0.003, output: 0.6 },
   "minimax-m3": { input: 0.3, cacheRead: 0.06, output: 1.2 },
   "qwen3.7-plus": { input: 0.4, cacheRead: 0.04, output: 1.6 },
 };

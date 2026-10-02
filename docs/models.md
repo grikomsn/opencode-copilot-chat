@@ -18,7 +18,9 @@ Fields the live responses omit are enriched from the canonical `opencode` and
 (`https://models.dev/api.json`) stored in VS Code `globalState`. Stale metadata
 is returned immediately while refresh runs and remains available during
 models.dev outages. Models served by discovery before models.dev catalogs them
-use a small supplemental entry — currently `hy3-preview` on the Go gateway —
+use a small supplemental entry — currently the Go-only ids `hy3-preview`,
+`deepseek-flash`, `minimax-m2.5`, `kimi-k2.5`, `glm-5.1`, `glm-5`, and
+`qwen3.5-plus` —
 which is superseded by the canonical upstream entry once it lands.
 
 Successful Zen and Go catalog results are cached per entry (mode, free-only
@@ -67,7 +69,7 @@ is available, the extension falls back to the official rates below
 | Model | Input | Cached input | Output |
 | --- | ---: | ---: | ---: |
 | Kimi K2.6 | $0.95 | $0.16 | $4.00 |
-| DeepSeek V4 Flash | $0.22 | $0.007 | $0.66 |
+| DeepSeek V4 Flash | $0.15 | $0.003 | $0.60 |
 | MiniMax-M3 | $0.30 | $0.06 | $1.20 |
 | Qwen3.7 Plus | $0.40 | $0.04 | $1.60 |
 
