@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   release:
-    name: Changesets and GitHub release
+    name: Changesets and Marketplace
     runs-on: ubuntu-latest
 
     steps:
@@ -61,13 +61,19 @@ jobs:
         if: steps.release.outputs.publish == 'true'
         run: npm run package
 
+      - name: Publish to Visual Studio Marketplace
+        if: steps.release.outputs.publish == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --packagePath "opencode-bridge-for-copilot-chat-${{ steps.release.outputs.version }}.vsix" --skip-duplicate
+
       - name: Create GitHub release
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.release.outputs.tag }}" \
-            "opencode-bridge-copilot-chat-${{ steps.release.outputs.version }}.vsix" \
+            "opencode-bridge-for-copilot-chat-${{ steps.release.outputs.version }}.vsix" \
             --target "$GITHUB_SHA" \
             --title "${{ steps.release.outputs.tag }}" \
             --generate-notes

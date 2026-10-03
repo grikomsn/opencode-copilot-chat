@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- Launch OpenCode Bridge for Copilot Chat v1.0.0 under the new extension ID `grikomsn.opencode-bridge-for-copilot-chat` and restore Visual Studio Marketplace publishing. Remove the temporary GitHub update notifier in favor of VS Code updates. Users of the previous extension should disable or uninstall it, install the new listing, and sign in again; existing `opencode.*` settings retain their names.
+
 ## 0.8.0
 
 ### Minor Changes
