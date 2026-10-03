@@ -363,7 +363,7 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
   const session = await auth.getConsoleSession(activeConsole);
   const apiKeys = await auth.getApiKeys();
   const lines = [
-    "# OpenCode for Copilot Chat diagnostics", "", `- VS Code: ${vscode.version}`,
+    "# OpenCode Bridge for Copilot Chat diagnostics", "", `- VS Code: ${vscode.version}`,
     `- Console profiles: ${profiles.length ? profiles.join(", ") : "none"}`,
     `- Active Console profile: ${activeConsole}`,
     `- Active Console session: ${session ? "present" : "missing"}`,

@@ -9,8 +9,9 @@ npm run changeset
 
 Choose `patch`, `minor`, or `major`, then describe the user-visible change. The
 release workflow collects pending changesets into a version pull request.
-Merging that pull request packages the VSIX and creates a matching GitHub
-release. Visual Studio Marketplace publishing is temporarily disabled.
+Merging that pull request packages the VSIX, publishes it to the Visual Studio
+Marketplace using the existing `VSCE_PAT` repository secret, and creates a matching
+GitHub release.
 
 Documentation-only and internal maintenance changes may use an empty
 changeset:

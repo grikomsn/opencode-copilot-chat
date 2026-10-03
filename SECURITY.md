@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes target the latest version published on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-copilot-chat). Update to the latest release before reporting an issue that may already be fixed.
+Security fixes target the latest version published on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=grikomsn.opencode-bridge-for-copilot-chat). Update to the latest release before reporting an issue that may already be fixed.
 
 ## Reporting a vulnerability
 

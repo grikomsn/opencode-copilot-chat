@@ -1,8 +1,8 @@
 {
-  "name": "opencode-bridge-copilot-chat",
-  "displayName": "OpenCode for Copilot Chat",
+  "name": "opencode-bridge-for-copilot-chat",
+  "displayName": "OpenCode Bridge for Copilot Chat",
   "description": "Use OpenCode Console and Go models in GitHub Copilot Chat.",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "publisher": "grikomsn",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -83,7 +83,7 @@
       }
     ],
     "configuration": {
-      "title": "OpenCode for Copilot Chat",
+      "title": "OpenCode Bridge for Copilot Chat",
       "properties": {
         "opencode.defaultMode": {
           "type": "string",
@@ -412,7 +412,7 @@
     "check": "npm test",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "npm run package",
+    "release": "npm run check && vsce publish --skip-duplicate",
     "prepackage": "npm run check",
     "package": "vsce package",
     "vscode:prepublish": "npm run compile"

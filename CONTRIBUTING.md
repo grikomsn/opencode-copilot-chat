@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve OpenCode for Copilot Chat.
+Thanks for helping improve OpenCode Bridge for Copilot Chat.
 
 ## Before opening work
 
