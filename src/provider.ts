@@ -290,7 +290,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     return {
       id: qualifiedModelId(credentialId, model.id, mode),
       name: model.name,
-      version: "3-provider-groups",
+      version: "4-accounts",
       family: model.family,
       ...advertisedModelLimits(model),
       capabilities: { imageInput: model.imageInput, toolCalling: model.toolCalling },

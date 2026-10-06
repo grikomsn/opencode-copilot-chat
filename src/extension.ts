@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { registerInlineCompletions } from "./autocomplete";
+import { DEFAULT_CONSOLE_PROFILE } from "./auth/auth";
+import { INLINE_SUGGESTIONS_ACCOUNT_SETTING } from "./autocomplete/config";
 import { OpenCodeAuth } from "./auth/auth";
 import { registerCommands } from "./commands/commands";
 import { OpenCodeProvider } from "./provider";
@@ -78,7 +80,10 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.lm.registerLanguageModelChatProvider(definition.vendor, providers[definition.mode])),
     ...registerCommands(auth, providers, output, () => activeUsageProvider),
     registerInlineCompletions(context, {
-      resolveApiKey: async (gateway) => (await auth.getApiKeys())[gateway],
+      resolveApiKey: async (gateway) => {
+        const account = vscode.workspace.getConfiguration("opencode").get<string>(INLINE_SUGGESTIONS_ACCOUNT_SETTING, DEFAULT_CONSOLE_PROFILE);
+        return (await auth.getAccountKeys(account || DEFAULT_CONSOLE_PROFILE))[gateway];
+      },
       output,
       userAgent,
     }),

@@ -14,3 +14,6 @@ cannot collide; the default Console device profile and the command-managed Go
 key keep unqualified IDs for compatibility with earlier model selections.
 Signed-out sessions no longer race credential refreshes, and 401 retries only
 refresh session-backed credentials instead of swapping key-backed entries.
+Go device-code sign-in now prompts for an account profile instead of always
+targeting the default session, and inline completion credentials follow the
+new `opencode.inlineSuggestionsAccount` setting.

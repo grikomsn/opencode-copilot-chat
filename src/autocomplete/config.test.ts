@@ -16,6 +16,7 @@ import {
   INLINE_PREFIX_LINES_SETTING,
   INLINE_SUFFIX_CHARS_SETTING,
   INLINE_SUGGESTIONS_CHAT_INPUT_SETTING,
+  INLINE_SUGGESTIONS_ACCOUNT_SETTING,
   INLINE_SUGGESTIONS_GATEWAY_SETTING,
   INLINE_SUGGESTIONS_MODEL_SETTING,
   INLINE_SUGGESTIONS_SETTING,
@@ -28,6 +29,7 @@ test("targets the opencode configuration section with stable setting keys", () =
   assert.equal(INLINE_SUGGESTIONS_SETTING, "inlineSuggestions");
   assert.equal(INLINE_SUGGESTIONS_GATEWAY_SETTING, "inlineSuggestionsGateway");
   assert.equal(INLINE_SUGGESTIONS_MODEL_SETTING, "inlineSuggestionsModel");
+  assert.equal(INLINE_SUGGESTIONS_ACCOUNT_SETTING, "inlineSuggestionsAccount");
   assert.equal(INLINE_SUGGESTIONS_CHAT_INPUT_SETTING, "inlineSuggestionsChatInput");
   assert.equal(INLINE_DEBOUNCE_MS_SETTING, "inlineSuggestionsDebounceMs");
   assert.equal(INLINE_TIMEOUT_MS_SETTING, "inlineSuggestionsTimeoutMs");

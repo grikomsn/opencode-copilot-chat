@@ -126,6 +126,12 @@
           "default": "qwen3.7-plus",
           "description": "Model id used for inline completions. Choose a model with a genuine non-thinking mode, such as qwen3.7-plus (Go) or qwen3.6-plus (Console); reasoning-first models are too slow for ghost text."
         },
+        "opencode.inlineSuggestionsAccount": {
+          "type": "string",
+          "default": "default",
+          "pattern": "^(|[a-z0-9][a-z0-9._-]{0,63})$",
+          "description": "Account profile whose stored service-account key (or device session) authenticates inline completion requests. Defaults to the legacy default account."
+        },
         "opencode.inlineSuggestionsChatInput": {
           "type": "boolean",
           "default": false,

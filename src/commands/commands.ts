@@ -65,8 +65,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   else if (picked.action === "refresh") await refreshModels(provider);
   else if (picked.action === "inlineModel") await setInlineSuggestionsModel();
   else if (picked.action === "org") await switchOrganization(auth, provider, output, profile);
-  else if (picked.action === "profile") await selectConsoleProfile(auth, providers.console);
-  else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
+  else if (picked.action === "profile") await selectConsoleProfile(auth, providers.console);  else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
   else if (picked.action === "signout") await signOut(auth, provider, mode, profile);
   else if (picked.action === "switch") await chooseModeAndSignIn(auth, providers, output);
   else if (picked.action === "accountKey") await addAccountKey(auth, providers);
@@ -117,25 +116,9 @@ async function signInWithConsole(
   output: vscode.OutputChannel,
   profile = DEFAULT_CONSOLE_PROFILE,
 ): Promise<void> {
-  let device: Awaited<ReturnType<OpenCodeAuth["requestDeviceCode"]>> | undefined;
   try {
-    device = await auth.requestDeviceCode();
-    await vscode.env.clipboard.writeText(device.userCode);
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(device.verificationUrl));
-    if (!opened) throw new Error(`Open ${device.verificationUrl} and enter code ${device.userCode}`);
-    vscode.window.showInformationMessage(`OpenCode Console code ${device.userCode} copied to the clipboard.`);
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Waiting for OpenCode Console sign-in…", cancellable: true },
-      async (_progress, cancellation) => {
-        const controller = new AbortController();
-        const listener = cancellation.onCancellationRequested(() => controller.abort());
-        try { await auth.completeDeviceSignIn(device!, controller.signal, profile); }
-        finally { listener.dispose(); }
-      },
-    );
-    const session = await auth.getConsoleSession(profile);
-    if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
-    await chooseOrganization(auth, session.orgs, profile);
+    await runDeviceSignIn(auth, output, profile);
+    await chooseOrganizationForSession(auth, profile);
     await setMode("console");
     provider.setActiveConsoleProfile(profile);
     const models = await provider.refreshModels();
@@ -147,11 +130,38 @@ async function signInWithConsole(
   }
 }
 
+/** Runs the Console device flow end to end and stores the session for one account. */
+async function runDeviceSignIn(auth: OpenCodeAuth, output: vscode.OutputChannel, profile: string): Promise<void> {
+  const device = await auth.requestDeviceCode();
+  await vscode.env.clipboard.writeText(device.userCode);
+  const opened = await vscode.env.openExternal(vscode.Uri.parse(device.verificationUrl));
+  if (!opened) throw new Error(`Open ${device.verificationUrl} and enter code ${device.userCode}`);
+  vscode.window.showInformationMessage(`OpenCode Console code ${device.userCode} copied to the clipboard.`);
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "Waiting for OpenCode Console sign-in…", cancellable: true },
+    async (_progress, cancellation) => {
+      const controller = new AbortController();
+      const listener = cancellation.onCancellationRequested(() => controller.abort());
+      try { await auth.completeDeviceSignIn(device!, controller.signal, profile); }
+      finally { listener.dispose(); }
+    },
+  );
+  const session = await auth.getConsoleSession(profile);
+  if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
+}
+
+/** Chooses an organization for an existing account session, if any are available. */
+async function chooseOrganizationForSession(auth: OpenCodeAuth, profile: string): Promise<void> {
+  const session = await auth.getConsoleSession(profile);
+  if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
+  await chooseOrganization(auth, session.orgs, profile);
+}
+
 /**
  * Device-code sign-in that targets the Go gateway: the OpenCode Console
  * account authenticates the user, then the Go provider refreshes models with
- * the Console session token. Go subscriptions and keys are managed in the
- * Console, so both providers share one account flow.
+ * the account's Console session token. Go subscriptions and keys are managed
+ * in the Console, so both providers share one account flow.
  */
 async function signInWithConsoleForMode(
   auth: OpenCodeAuth,
@@ -159,29 +169,15 @@ async function signInWithConsoleForMode(
   output: vscode.OutputChannel,
   mode: "go",
 ): Promise<void> {
-  let device: Awaited<ReturnType<OpenCodeAuth["requestDeviceCode"]>> | undefined;
   try {
-    device = await auth.requestDeviceCode();
-    await vscode.env.clipboard.writeText(device.userCode);
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(device.verificationUrl));
-    if (!opened) throw new Error(`Open ${device.verificationUrl} and enter code ${device.userCode}`);
-    vscode.window.showInformationMessage(`OpenCode Console code ${device.userCode} copied to the clipboard.`);
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: "Waiting for OpenCode Console sign-in…", cancellable: true },
-      async (_progress, cancellation) => {
-        const controller = new AbortController();
-        const listener = cancellation.onCancellationRequested(() => controller.abort());
-        try { await auth.completeDeviceSignIn(device!, controller.signal); }
-        finally { listener.dispose(); }
-      },
-    );
-    const session = await auth.getConsoleSession();
-    if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
-    await chooseOrganization(auth, session.orgs);
+    const account = await promptAccount(`Sign in to OpenCode ${label(mode)} with a Console account`, "default, personal or work");
+    if (!account) return;
+    await runDeviceSignIn(auth, output, account);
+    await chooseOrganizationForSession(auth, account);
     await setMode("go");
     const models = await provider.refreshModels();
-    const selected = await auth.getConsoleSession();
-    vscode.window.showInformationMessage(`OpenCode ${label(mode)} connected with the Console account${selected?.orgName ? ` ${selected.orgName}` : ""}. Found ${models.length} models.`);
+    const selected = await auth.getConsoleSession(account);
+    vscode.window.showInformationMessage(`OpenCode ${label(mode)} connected with the Console account “${account}”${selected?.orgName ? ` (${selected.orgName})` : ""}. Found ${models.length} models.`);
   } catch (error) {
     output.appendLine(`[console] ${messageOf(error)}`);
     vscode.window.showErrorMessage(`OpenCode ${label(mode)} sign-in failed: ${messageOf(error)}`);
