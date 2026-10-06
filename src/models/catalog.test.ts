@@ -48,7 +48,7 @@ test("uses authenticated live models and enriches fields from models.dev", async
       live: { id: "live", name: "Metadata Name", limit: { context: 1000, output: 50 }, reasoning: true, tool_call: true },
       stale: { id: "stale" },
     } } })));
-  const models = await catalog.refresh("console", { mode: "console", token: "token" }, false);
+  const models = await catalog.refresh("console", { mode: "console", token: "token", origin: "key" }, false);
   assert.deepEqual(models.map((model) => model.id), ["live"]);
   assert.deepEqual({ name: models[0].name, context: models[0].contextLength, output: models[0].maxOutputTokens, tools: models[0].toolCalling }, {
     name: "Live Name",
@@ -82,7 +82,7 @@ test("enriches discovery-only Go models with supplemental metadata", async () =>
     : Response.json({ "opencode-go": { id: "opencode-go", models: {
       hy3: { id: "hy3", name: "Hy3", limit: { context: 256_000 }, reasoning: true, tool_call: true },
     } } }));
-  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  const models = await catalog.refresh("go", { mode: "go", token: "token", origin: "key" }, false);
   assert.deepEqual(models.map((model) => model.id), ["hy3-preview", "hy3"]);
   const preview = models.find((model) => model.id === "hy3-preview");
   assert.deepEqual({ name: preview?.name, family: preview?.family, context: preview?.contextLength, reasoning: preview?.reasoning, tools: preview?.toolCalling }, {
@@ -100,7 +100,7 @@ test("enriches discovery-only Go models with mirrored supplemental metadata", as
   const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
     ? Response.json({ data: [{ id: "deepseek-flash" }] })
     : Response.json({ "opencode-go": { id: "opencode-go", models: {} } }));
-  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  const models = await catalog.refresh("go", { mode: "go", token: "token", origin: "key" }, false);
   assert.deepEqual(models.map((model) => model.id), ["deepseek-flash"]);
   const flash = models[0];
   assert.deepEqual({ name: flash.name, family: flash.family, context: flash.contextLength, output: flash.maxOutputTokens, image: flash.imageInput, reasoning: flash.reasoning, tools: flash.toolCalling, cost: flash.cost, endpoint: flash.endpoint }, {
@@ -122,7 +122,7 @@ test("hides a live alias id when its canonical model is also discovered", async 
     : Response.json({ "opencode-go": { id: "opencode-go", models: {
       "deepseek-v4.1-flash": { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", limit: { context: 1_000_000, output: 384_000 }, reasoning: true, tool_call: true },
     } } }));
-  const models = await catalog.refresh("go", { mode: "go", token: "token" }, false);
+  const models = await catalog.refresh("go", { mode: "go", token: "token", origin: "key" }, false);
   assert.deepEqual(models.map((model) => model.id), ["deepseek-v4.1-flash"]);
   assert.equal(models[0].name, "DeepSeek V4.1 Flash");
 });
@@ -136,9 +136,9 @@ test("restores a recent authenticated catalog cache when refresh fails", async (
   const fetcher = async (input: RequestInfo | URL) => String(input).endsWith("/models")
     ? new Response(JSON.stringify({ data: [{ id: "cached" }] }))
     : new Response(JSON.stringify({ opencode: { models: { cached: { id: "cached" } } } }));
-  await new ModelCatalog(fetcher, cache).refresh("console", { mode: "console", token: "token" }, false);
+  await new ModelCatalog(fetcher, cache).refresh("console", { mode: "console", token: "token", origin: "key" }, false);
   const catalog = new ModelCatalog(async () => new Response("no", { status: 503 }), cache);
-  assert.deepEqual((await catalog.refreshSafely("console", { mode: "console", token: "token" }, false)).map((item) => item.id), ["cached"]);
+  assert.deepEqual((await catalog.refreshSafely("console", { mode: "console", token: "token", origin: "key" }, false)).map((item) => item.id), ["cached"]);
 });
 
 test("resolves Console models from the organization configuration", async () => {
@@ -149,7 +149,7 @@ test("resolves Console models from the organization configuration", async () => 
     opencode: { api: "https://example.test/v1", models: { allowed: { id: "allowed", name: "Allowed", limit: { context: 1000, output: 100 }, tool_call: true }, disabled: { id: "disabled", name: "Disabled", disabled: true, limit: { context: 1000, output: 100 } } } },
   } } }));
   });
-  const models = await catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false);
+  const models = await catalog.refresh("console", { mode: "console", token: "token", origin: "session", server: "https://example.test", orgId: "org" }, false);
   assert.deepEqual(models.map((model) => model.id), ["allowed"]);
   assert.equal(models[0].providerId, "opencode");
   assert.equal(requestedHeaders?.get("x-org-id"), "org");
@@ -161,7 +161,7 @@ test("excludes other Console-managed providers such as opencode-go from the Cons
     "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", name: "Kimi K3", limit: { context: 1000, output: 100 } } } },
     openai: { models: { "gpt-5": { id: "gpt-5", name: "GPT-5", limit: { context: 1000, output: 100 } } } },
   } } })));
-  const models = await catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false);
+  const models = await catalog.refresh("console", { mode: "console", token: "token", origin: "session", server: "https://example.test", orgId: "org" }, false);
   assert.deepEqual(models.map((model) => model.id), ["glm-5.3"]);
   assert.equal(models[0].providerId, "opencode");
 });
@@ -171,7 +171,7 @@ test("returns no Console models when the organization config omits the opencode 
     "opencode-go": { models: { "kimi-k3": { id: "kimi-k3", limit: { context: 1000, output: 100 } } } },
   } } })));
   await assert.rejects(
-    () => catalog.refresh("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false),
+    () => catalog.refresh("console", { mode: "console", token: "token", origin: "session", server: "https://example.test", orgId: "org" }, false),
     /no usable models/,
   );
   assert.deepEqual(catalog.list("console"), []);
@@ -180,12 +180,12 @@ test("returns no Console models when the organization config omits the opencode 
 test("never falls back to a public model list for Console", async () => {
   const catalog = new ModelCatalog(async () => new Response("unavailable", { status: 503 }));
   assert.deepEqual(catalog.list("console"), []);
-  assert.deepEqual(await catalog.refreshSafely("console", { mode: "console", token: "token", server: "https://example.test", orgId: "org" }, false), []);
+  assert.deepEqual(await catalog.refreshSafely("console", { mode: "console", token: "token", origin: "session", server: "https://example.test", orgId: "org" }, false), []);
   assert.deepEqual(catalog.list("console"), []);
 });
 
 test("invalidates a fresh Console catalog when the active organization changes", async () => {
-  const credential = { mode: "console" as const, token: "token", server: "https://example.test", orgId: "org-a" };
+  const credential = { mode: "console" as const, token: "token", origin: "session" as const, server: "https://example.test", orgId: "org-a" };
   const catalog = new ModelCatalog(async () => new Response(JSON.stringify({ config: { provider: {
     opencode: { models: { allowed: { id: "allowed", limit: { context: 100, output: 50 } } } },
   } } })));
@@ -195,8 +195,8 @@ test("invalidates a fresh Console catalog when the active organization changes",
 });
 
 test("invalidates a fresh public catalog when the authenticated account changes", async () => {
-  const first = { mode: "console" as const, token: "first" };
-  const second = { mode: "console" as const, token: "second" };
+  const first = { mode: "console" as const, token: "first", origin: "key" as const };
+  const second = { mode: "console" as const, token: "second", origin: "key" as const };
   const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
     ? Response.json({ data: [{ id: "live" }] })
     : Response.json({ opencode: { models: { live: { id: "live" } } } }));

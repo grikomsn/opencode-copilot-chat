@@ -377,9 +377,15 @@
             "profile": {
               "type": "string",
               "title": "OpenCode Console Profile",
-              "description": "Profile ID created with OpenCode: Add Console Account (device-code sign-in). Used when no API key is set.",
+              "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in) or given a service-account key with OpenCode: Add Service-Account Key. Used when no API key is set.",
               "default": "default",
               "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            "name": {
+              "type": "string",
+              "title": "Entry Label",
+              "description": "Optional stable label distinguishing multiple entries that use different service-account keys. Model IDs stay constant when a labeled key is rotated.",
+              "pattern": "^(|[a-z0-9][a-z0-9._-]{0,63})$"
             }
           }
         }
@@ -389,15 +395,25 @@
         "displayName": "OpenCode Go",
         "configuration": {
           "type": "object",
-          "required": [
-            "apiKey"
-          ],
           "properties": {
             "apiKey": {
               "type": "string",
               "title": "OpenCode Go API Key",
-              "description": "Service-account API key for this OpenCode Go provider entry.",
+              "description": "Service-account API key for this OpenCode Go provider entry. Takes precedence over account profiles.",
               "secret": true
+            },
+            "profile": {
+              "type": "string",
+              "title": "OpenCode Console Account Profile",
+              "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in) or given a Go service-account key. Used when no API key is set.",
+              "default": "default",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            "name": {
+              "type": "string",
+              "title": "Entry Label",
+              "description": "Optional stable label distinguishing multiple entries that use different service-account keys. Model IDs stay constant when a labeled key is rotated.",
+              "pattern": "^(|[a-z0-9][a-z0-9._-]{0,63})$"
             }
           }
         }

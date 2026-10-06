@@ -44,6 +44,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
         ...(mode === "console" ? [{ label: "$(organization) Switch Console organization", action: "org" }] : []),
         ...(mode === "console" ? [{ label: "$(account) Select Console profile for usage and management", action: "profile" }, { label: "$(add) Add Console account", action: "addConsole" }] : []),
         { label: "$(key) Add or switch OpenCode credential", action: "switch" },
+        { label: "$(add) Add service-account key to an OpenCode account", action: "accountKey" },
         { label: "$(sign-out) Sign out", action: "signout" },
         { label: "$(output) Show OpenCode logs", action: "logs" },
       ]
@@ -68,6 +69,7 @@ async function manage(auth: OpenCodeAuth, providers: OpenCodeProviders, output: 
   else if (picked.action === "addConsole") await addConsoleAccount(auth, providers.console, output);
   else if (picked.action === "signout") await signOut(auth, provider, mode, profile);
   else if (picked.action === "switch") await chooseModeAndSignIn(auth, providers, output);
+  else if (picked.action === "accountKey") await addAccountKey(auth, providers);
   else if (picked.action === "console") await signInWithApiKey(auth, providers.console, "console");
   else if (picked.action === "console-device") await signInWithConsole(auth, providers.console, output, profile);
   else if (picked.action === "go") await signInWithApiKey(auth, providers.go, "go");
@@ -186,18 +188,54 @@ async function signInWithConsoleForMode(
   }
 }
 
-async function addConsoleAccount(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
+/**
+ * Stores a service-account key against a named account. Provider entries use
+ * the account by referencing its profile ID, so one account can hold separate
+ * Console and Go keys (or a device session) and serve both gateways.
+ */
+async function addAccountKey(auth: OpenCodeAuth, providers: OpenCodeProviders): Promise<void> {
+  const account = await promptAccount("Add a service-account key to an OpenCode account");
+  if (!account) return;
+  const picked = await vscode.window.showQuickPick([
+    { label: "$(cloud) OpenCode Console gateway", mode: "console" as const },
+    { label: "$(zap) OpenCode Go gateway", mode: "go" as const },
+  ], { title: `OpenCode — gateway for account “${account}”` });
+  if (!picked) return;
+  const key = await vscode.window.showInputBox({
+    title: `OpenCode ${label(picked.mode)} service-account API key`,
+    prompt: `Paste the OpenCode ${label(picked.mode)} service-account API key for account “${account}”`,
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: (value) => value.trim() ? undefined : "An API key is required",
+  });
+  if (!key) return;
+  try {
+    await auth.setAccountKey(account, picked.mode, key);
+    for (const provider of Object.values(providers)) provider.fireDidChange();
+    vscode.window.showInformationMessage(`OpenCode ${label(picked.mode)} key stored for account “${account}”. Add an OpenCode entry in Manage Language Models with profile “${account}” to use it.`);
+  } catch (error) {
+    vscode.window.showErrorMessage(`Storing the OpenCode ${label(picked.mode)} key failed: ${messageOf(error)}`);
+  }
+}
+
+/** Prompts for an account profile ID shared by provider entries and stored credentials. */
+async function promptAccount(title: string, placeHolder = "default, personal or work"): Promise<string | undefined> {
   const value = await vscode.window.showInputBox({
-    title: "Add OpenCode Console account",
-    prompt: "Choose the profile ID you will enter when adding OpenCode Console in Manage Language Models.",
-    placeHolder: "personal or work",
+    title,
+    prompt: "Account profile ID; provider entries reference it with their profile field.",
+    placeHolder,
     ignoreFocusOut: true,
     validateInput: (input) => {
       try { normalizeConsoleProfile(input); return undefined; } catch (error) { return messageOf(error); }
     },
   });
-  if (!value) return;
-  const profile = normalizeConsoleProfile(value);
+  return value ? normalizeConsoleProfile(value) : undefined;
+}
+
+async function addConsoleAccount(auth: OpenCodeAuth, provider: OpenCodeProvider, output: vscode.OutputChannel): Promise<void> {
+  const account = await promptAccount("Add OpenCode Console account", "personal or work");
+  if (!account) return;
+  const profile = account;
   if (await auth.hasCredential("console", profile)) {
     const replace = await vscode.window.showWarningMessage(
       `Replace the OpenCode Console session stored for profile “${profile}”?`,
@@ -362,13 +400,19 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders): Pr
   const activeConsole = providers.console.getActiveProfile();
   const session = await auth.getConsoleSession(activeConsole);
   const apiKeys = await auth.getApiKeys();
+  const keyAccounts = await Promise.all((await auth.listKeyAccounts()).map(async (account) => {
+    const keys = await auth.getAccountKeys(account);
+    const gateways = [keys.console ? "console" : undefined, keys.go ? "go" : undefined].filter(Boolean).join("/");
+    return `${account}${gateways ? ` [${gateways}]` : ""}`;
+  }));
   const lines = [
     "# OpenCode Bridge for Copilot Chat diagnostics", "", `- VS Code: ${vscode.version}`,
     `- Console profiles: ${profiles.length ? profiles.join(", ") : "none"}`,
     `- Active Console profile: ${activeConsole}`,
     `- Active Console session: ${session ? "present" : "missing"}`,
     `- Console organization selected: ${session?.orgId ? "yes" : "no"}`,
-    `- Service-account API keys stored: ${[apiKeys.console ? "console" : undefined, apiKeys.go ? "go" : undefined].filter(Boolean).join(", ") || "none"}`, "",
+    `- Default-account service keys: ${[apiKeys.console ? "console" : undefined, apiKeys.go ? "go" : undefined].filter(Boolean).join(", ") || "none"}`,
+    `- Accounts with service keys: ${keyAccounts.length ? keyAccounts.join(", ") : "none"}`, "",
     ...(await Promise.all(modelGroups.map(async ({ mode, models }) => [
       `## OpenCode ${label(mode)}`,
       "",

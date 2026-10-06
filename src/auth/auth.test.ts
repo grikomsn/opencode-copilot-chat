@@ -53,6 +53,51 @@ test("migrates the legacy Zen service-account key to Console", async () => {
   assert.equal(await secrets.get("opencode.apiKeys.v1"), JSON.stringify({ console: "legacy-zen-key", go: "go-key" }));
 });
 
+test("seeds per-account keys from the legacy blob exactly once", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.apiKeys.v1", JSON.stringify({ console: "console-key", go: "go-key" }));
+  const auth = new OpenCodeAuth(secrets as never);
+  assert.deepEqual(await auth.getAccountKeys(), { console: "console-key", go: "go-key" });
+  assert.equal(await secrets.get("opencode.accountKeys.v1"), JSON.stringify({ default: { console: "console-key", go: "go-key" } }));
+  // Later key changes write the account store only; the legacy blob is not re-read.
+  await auth.clearApiKey("go");
+  assert.deepEqual(await auth.getApiKeys(), { console: "console-key" });
+  assert.equal(await secrets.get("opencode.apiKeys.v1"), JSON.stringify({ console: "console-key", go: "go-key" }));
+  const reseeded = new OpenCodeAuth(secrets as never);
+  assert.deepEqual(await reseeded.getAccountKeys(), { console: "console-key" });
+});
+
+test("stores service keys per account and per gateway", async () => {
+  const auth = new OpenCodeAuth(new Secrets() as never);
+  await auth.setAccountKey("work", "console", "console-a");
+  await auth.setAccountKey("Work", "go", "go-b");
+  await auth.setApiKey("go", "default-go");
+  assert.deepEqual(await auth.getAccountKeys("work"), { console: "console-a", go: "go-b" });
+  assert.deepEqual(await auth.getAccountKeys("default"), { go: "default-go" });
+  assert.deepEqual(await auth.listKeyAccounts(), ["default", "work"]);
+  await auth.clearAccountKey("work", "console");
+  assert.deepEqual(await auth.getAccountKeys("work"), { go: "go-b" });
+});
+
+test("resolves a named account's key before its device session", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.accountKeys.v1", JSON.stringify({ work: { go: "work-go-key" } }));
+  await secrets.store("opencode.consoleSession.v1.work", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
+    expiresAt: Date.now() + 3600_000, accountId: "work", email: "work@example.com", orgs: [],
+  }));
+  const auth = new OpenCodeAuth(secrets as never);
+  const keyed = await auth.getCredential("go", false, "work");
+  assert.equal(keyed?.token, "work-go-key");
+  assert.equal(keyed?.origin, "key");
+  await auth.clearAccountKey("work", "go");
+  const session = await auth.getCredential("go", false, "work");
+  assert.equal(session?.token, "access");
+  assert.equal(session?.origin, "session");
+  // The default account is unaffected by the work account's keys.
+  assert.equal(await auth.getCredential("go"), undefined);
+});
+
 test("prefers the Console service-account key over the device-flow session", async () => {
   const secrets = new Secrets();
   await secrets.store("opencode.apiKeys.v1", JSON.stringify({ console: "console-key" }));
