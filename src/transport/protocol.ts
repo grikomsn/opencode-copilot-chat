@@ -75,9 +75,13 @@ export function resolveEndpointKind(
   if (/^claude-/i.test(modelId)) return "messages";
   // Family-wide rather than version-pinned: every live grok* and qwen* model
   // on both gateways is responses or messages, and models.dev omits `npm` for
-  // some of them (qwen3.8-max), which is the only signal the checks above have.
+  // all qwen ids, which is the only signal the checks above have.
   if (/^grok(?:-|$)/i.test(modelId)) return "responses";
   if (/^muse-spark-/i.test(modelId)) return "responses";
+  // qwen3.8-max is the only live qwen whose documented and live-verified shape
+  // on the zen gateway is chat completions (the gateway rejects it on
+  // /messages with a ModelProtocolUnsupported error); Go keeps messages.
+  if (/^qwen-?3\.8-max$/i.test(modelId)) return mode === "go" ? "messages" : "chat-completions";
   if (/^qwen/i.test(modelId)) return "messages";
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
   if (mode === "console" && /^gemini-/i.test(modelId)) return "google";

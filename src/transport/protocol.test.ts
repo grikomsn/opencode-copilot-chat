@@ -69,6 +69,10 @@ test("routes known OpenCode model families to their native gateway shape", () =>
   assert.equal(resolveEndpointKind("grok-5", "go"), "responses");
   assert.equal(resolveEndpointKind("qwen3.9-coder", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.6-plus-free", "console"), "messages");
+  // qwen3.8-max is the only qwen the zen gateway serves as chat completions,
+  // verified live (it rejects /messages with ModelProtocolUnsupported).
+  assert.equal(resolveEndpointKind("qwen3.8-max", "console"), "chat-completions");
+  assert.equal(resolveEndpointKind("qwen-3.8-max", "console"), "chat-completions");
 });
 
 test("keeps undiscovered families on the shared chat completions shape", () => {
