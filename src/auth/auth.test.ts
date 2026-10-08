@@ -9,13 +9,20 @@ test("normalizes safe Console profile IDs", () => {
 
 class Secrets {
   private readonly values = new Map<string, string>();
-  constructor(private readonly delayProfileIndex = false) {}
   async get(key: string): Promise<string | undefined> { return this.values.get(key); }
-  async store(key: string, value: string): Promise<void> {
-    if (this.delayProfileIndex && key === "opencode.consoleProfiles.v1") await new Promise((resolve) => setTimeout(resolve, 5));
-    this.values.set(key, value);
-  }
+  async store(key: string, value: string): Promise<void> { this.values.set(key, value); }
   async delete(key: string): Promise<void> { this.values.delete(key); }
+  async keys(): Promise<string[]> { return [...this.values.keys()]; }
+}
+
+interface AuthChangeSpy {
+  count(): number;
+}
+
+function trackChanges(auth: OpenCodeAuth): AuthChangeSpy {
+  let count = 0;
+  auth.onDidChange(() => { count += 1; });
+  return { count: () => count };
 }
 
 test("opens Console device verification at opencode.ai/console/device", async () => {
@@ -37,38 +44,64 @@ test("opens Console device verification at opencode.ai/console/device", async ()
   assert.equal(device.userCode, "ABCD-EFGH");
 });
 
-test("stores Console and Go keys separately", async () => {
-  const auth = new OpenCodeAuth(new Secrets() as never);
-  await auth.setApiKey("console", "console-key");
-  await auth.setApiKey("go", "go-key");
-  assert.deepEqual(await auth.getApiKeys(), { console: "console-key", go: "go-key" });
+test("lists device accounts from stored sessions without a profile index", async () => {
+  const secrets = new Secrets();
+  const session = (accessToken: string) => JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken, refreshToken: "refresh",
+    expiresAt: Date.now() + 3600_000, accountId: accessToken, email: `${accessToken}@example.com`, orgs: [],
+  });
+  await secrets.store("opencode.consoleSession.v1.work", session("work"));
+  await secrets.store("opencode.consoleSession.v1", session("default"));
+  // A stale index left by older versions is ignored, not consulted.
+  await secrets.store("opencode.consoleProfiles.v1", JSON.stringify(["ghost"]));
+  const auth = new OpenCodeAuth(secrets as never);
+  assert.deepEqual(await auth.listConsoleProfiles(), ["default", "work"]);
 });
 
-test("migrates the legacy Zen service-account key to Console", async () => {
+test("notifies change listeners for session mutations", async () => {
   const secrets = new Secrets();
-  await secrets.store("opencode.apiKeys.v1", JSON.stringify({ zen: "legacy-zen-key", go: "go-key" }));
-  const auth = new OpenCodeAuth(secrets as never);
-  assert.deepEqual(await auth.getApiKeys(), { console: "legacy-zen-key", go: "go-key" });
-  // The migration is persisted so later reads are stable.
-  assert.equal(await secrets.get("opencode.apiKeys.v1"), JSON.stringify({ console: "legacy-zen-key", go: "go-key" }));
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+    if (url.endsWith("/api/user")) return Response.json({ id: "work", email: "work@example.com" });
+    return Response.json([{ id: "org", name: "Org" }]);
+  };
+  const auth = new OpenCodeAuth(secrets as never, fetcher, () => 1_000, async () => undefined);
+  const changes = trackChanges(auth);
+  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
+  await auth.completeDeviceSignIn(device, undefined, "work");
+  await auth.selectOrganization({ id: "org", name: "Org" }, "work");
+  await auth.signOut("work");
+  // One sign-in, one org selection, one sign-out.
+  assert.equal(changes.count(), 3);
 });
 
-test("prefers the Console service-account key over the device-flow session", async () => {
+const device = (server = "https://example.test"): DeviceCode => ({ deviceCode: "device", userCode: "ABCD", verificationUrl: server, expiresAt: 100_000, intervalMs: 1, server });
+
+const sessionFetcher = (): typeof fetch => async (input) => {
+  const url = String(input);
+  if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+  if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
+  return Response.json([]);
+};
+
+const storedSession = (token = "access"): string => JSON.stringify({
+  mode: "console", server: "https://example.test", accessToken: token, refreshToken: "refresh",
+  expiresAt: Date.now() + 3_600_000, accountId: "account", email: "user@example.com", orgs: [],
+});
+
+test("resolves session credentials for either gateway from one account", async () => {
   const secrets = new Secrets();
-  await secrets.store("opencode.apiKeys.v1", JSON.stringify({ console: "console-key" }));
-  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
-    mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
-    expiresAt: Date.now() + 3_600_000, accountId: "account", email: "user@example.com", orgs: [],
-  }));
+  await secrets.store("opencode.consoleSession.v1.work", storedSession("work-access"));
   const auth = new OpenCodeAuth(secrets as never);
-  const credential = await auth.getCredential("console");
-  assert.equal(credential?.token, "console-key");
-  assert.equal(credential?.server, undefined);
-  // Force-refresh still resolves through the session (used on 401); the
-  // device-flow token endpoint is fetched without a live network in tests.
-  const session = await auth.getConsoleSession();
-  assert.equal(session?.accessToken, "access");
-  assert.equal(session?.server, "https://example.test");
+  for (const mode of ["console", "go"] as const) {
+    const credential = await auth.getCredential(mode, false, "work");
+    assert.equal(credential?.token, "work-access");
+    assert.equal(credential?.origin, "session");
+    assert.equal(credential?.mode, mode);
+  }
+  // The default account is unaffected.
+  assert.equal(await auth.getCredential("go", false, "default"), undefined);
 });
 
 test("Go device-code sign-in resolves a Console session credential", async () => {
@@ -78,9 +111,8 @@ test("Go device-code sign-in resolves a Console session credential", async () =>
     if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
     return Response.json([{ id: "org-1", name: "Alpha" }]);
   };
-  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000, async () => undefined);
-  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
-  await auth.completeDeviceSignIn(device);
+  const auth = new OpenCodeAuth(new Secrets() as never, sessionFetcher(), () => 1_000, async () => undefined);
+  await auth.completeDeviceSignIn(device());
   // Go requests authenticate with the Console session token.
   const credential = await auth.getCredential("go");
   assert.equal(credential?.mode, "go");
@@ -182,8 +214,8 @@ test("preserves organization selection made during token refresh", async () => {
   assert.equal(session?.orgName, "Beta");
 });
 
-test("serializes concurrent Console profile-index updates", async () => {
-  const secrets = new Secrets(true);
+test("serializes concurrent device sign-ins", async () => {
+  const secrets = new Secrets();
   let account = 0;
   const fetcher: typeof fetch = async (input) => {
     const url = String(input);
@@ -216,7 +248,7 @@ test("does not persist a Console refresh that finishes after sign-out", async ()
     return Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600 });
   }, () => 1_000);
   const refreshing = auth.getCredential("console", false, "work");
-  await auth.signOut("console", "work");
+  await auth.signOut("work");
   release();
   await assert.rejects(refreshing, /changed while its session was refreshing/);
   assert.equal(await auth.getConsoleSession("work"), undefined);
@@ -238,7 +270,7 @@ test("does not persist a device sign-in that finishes after sign-out", async () 
   const auth = new OpenCodeAuth(secrets as never, fetcher, () => 1_000, async () => undefined);
   const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
   const signingIn = auth.completeDeviceSignIn(device, undefined, "work");
-  await auth.signOut("console", "work");
+  await auth.signOut("work");
   release();
   await assert.rejects(signingIn, /was superseded/);
   assert.equal(await auth.getConsoleSession("work"), undefined);
@@ -253,12 +285,12 @@ test("does not persist an organization change that finishes after sign-out", asy
   }));
   const auth = new OpenCodeAuth(secrets as never);
   const selecting = auth.selectOrganization({ id: "org", name: "Organization" }, "work");
-  await auth.signOut("console", "work");
+  await auth.signOut("work");
   await assert.rejects(selecting, /was superseded/);
   assert.equal(await auth.getConsoleSession("work"), undefined);
 });
 
-test("signing out of Console clears the VS Code-managed session", async () => {
+test("signing out clears the VS Code-managed session", async () => {
   const secrets = new Secrets();
   await secrets.store("opencode.consoleSession.v1", JSON.stringify({
     mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
@@ -266,6 +298,6 @@ test("signing out of Console clears the VS Code-managed session", async () => {
   }));
   const auth = new OpenCodeAuth(secrets as never);
   assert.ok(await auth.getConsoleSession());
-  await auth.signOut("console");
+  await auth.signOut();
   assert.equal(await auth.getConsoleSession(), undefined);
 });

@@ -1,16 +1,8 @@
 import type * as vscode from "vscode";
 import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, resolveConsoleVerificationUrl, type OpenCodeMode } from "../transport/protocol";
 
-const API_KEYS_KEY = "opencode.apiKeys.v1";
 const CONSOLE_SESSION_KEY = "opencode.consoleSession.v1";
-const CONSOLE_PROFILES_KEY = "opencode.consoleProfiles.v1";
 export const DEFAULT_CONSOLE_PROFILE = "default";
-
-/**
- * Legacy secret blob written by versions that treated Zen as its own provider.
- * It stored `{ zen, go }`; the `zen` entry carried a Console service-account
- * API key and is read as the console slot on load.
- */
 
 export function normalizeConsoleProfile(value: string): string {
   const profile = value.trim().toLowerCase();
@@ -22,11 +14,6 @@ export function normalizeConsoleProfile(value: string): string {
 
 function consoleSessionKey(profile: string): string {
   return profile === DEFAULT_CONSOLE_PROFILE ? CONSOLE_SESSION_KEY : `${CONSOLE_SESSION_KEY}.${profile}`;
-}
-
-export interface ApiKeys {
-  console?: string;
-  go?: string;
 }
 
 export interface ConsoleOrg {
@@ -59,19 +46,34 @@ export interface DeviceCode {
 export interface Credential {
   mode: OpenCodeMode;
   token: string;
+  /** Whether the token came from a provider-entry service key or a device-flow session. */
+  origin: "key" | "session";
   server?: string;
   orgId?: string;
   orgName?: string;
+  /** Account email for device-flow session credentials; service keys have no account lookup. */
+  email?: string;
 }
 
 type Fetcher = typeof fetch;
 type Sleeper = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+type ChangeListener = () => void;
 
 export class OpenCodeAuth {
   private readonly refreshPromises = new Map<string, { identity: string; promise: Promise<ConsoleSession> }>();
   private readonly sessionMutations = new Map<string, Promise<void>>();
-  private profileIndexMutation: Promise<void> = Promise.resolve();
   private readonly profileGenerations = new Map<string, number>();
+  private readonly changeListeners = new Set<ChangeListener>();
+
+  /** Fires after a device session or its organization selection changes. */
+  onDidChange(listener: ChangeListener): { dispose(): void } {
+    this.changeListeners.add(listener);
+    return { dispose: () => { this.changeListeners.delete(listener); } };
+  }
+
+  private notifyChange(): void {
+    for (const listener of this.changeListeners) listener();
+  }
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -80,48 +82,7 @@ export class OpenCodeAuth {
     private readonly sleep: Sleeper = delay,
   ) {}
 
-  async getApiKeys(): Promise<ApiKeys> {
-    const raw = await this.secrets.get(API_KEYS_KEY);
-    if (!raw) return {};
-    let parsed: (ApiKeys & { zen?: unknown }) | undefined;
-    try {
-      parsed = JSON.parse(raw) as ApiKeys & { zen?: unknown };
-    } catch {
-      return {};
-    }
-    // Versions before the Console transition stored the Console
-    // service-account key under the legacy `zen` slot of this same blob.
-    // Rewrite the blob once so persisted state matches the current shape.
-    const hasLegacy = typeof parsed.zen === "string" && parsed.zen.trim() && !parsed.console;
-    if (hasLegacy) {
-      const migrated: ApiKeys = {
-        console: (parsed.zen as string).trim(),
-        ...(typeof parsed.go === "string" && parsed.go.trim() ? { go: parsed.go.trim() } : {}),
-      };
-      await this.secrets.store(API_KEYS_KEY, JSON.stringify(migrated));
-      return migrated;
-    }
-    return {
-      ...(typeof parsed.console === "string" && parsed.console.trim() ? { console: parsed.console } : {}),
-      ...(typeof parsed.go === "string" && parsed.go.trim() ? { go: parsed.go } : {}),
-    };
-  }
-
-  async setApiKey(mode: OpenCodeMode, value: string): Promise<void> {
-    const keys = await this.getApiKeys();
-    keys[mode] = value.trim();
-    await this.secrets.store(API_KEYS_KEY, JSON.stringify(keys));
-  }
-
-  async clearApiKey(mode: OpenCodeMode): Promise<void> {
-    const keys = await this.getApiKeys();
-    delete keys[mode];
-    await this.secrets.store(API_KEYS_KEY, JSON.stringify(keys));
-  }
-
-  async hasCredential(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<boolean> {
-    const keys = await this.getApiKeys();
-    if (keys[mode]) return true;
+  async hasCredential(profile = DEFAULT_CONSOLE_PROFILE): Promise<boolean> {
     return Boolean(await this.getConsoleSession(profile));
   }
 
@@ -130,12 +91,13 @@ export class OpenCodeAuth {
     forceRefresh = false,
     profile = DEFAULT_CONSOLE_PROFILE,
   ): Promise<Credential | undefined> {
-    // A stored service-account API key takes precedence over the device-flow
-    // session, mirroring the upstream key method's precedence. Both Console
-    // and Go requests may authenticate with either credential; device sign-in
-    // for either mode stores a shared Console session.
-    const apiKey = (await this.getApiKeys())[mode];
-    if (apiKey && !forceRefresh) return { mode, token: apiKey };
+    // Only device-flow sessions are managed here; service-account keys are
+    // user-managed inside VS Code provider-entry configuration. One session
+    // grants both gateways: the access token authenticates Console and Go
+    // requests alike.
+    // The session is snapshotted first so a concurrent sign-out is detected
+    // by the refresh generation guard instead of resolving from a session
+    // that vanished mid-read.
     const normalized = normalizeConsoleProfile(profile);
     const session = await this.getConsoleSession(normalized);
     if (!session) return undefined;
@@ -145,9 +107,11 @@ export class OpenCodeAuth {
     return {
       mode,
       token: current.accessToken,
+      origin: "session",
       server: current.server,
       orgId: current.orgId,
       orgName: current.orgName,
+      email: current.email,
     };
   }
 
@@ -232,6 +196,7 @@ export class OpenCodeAuth {
         ...(normalizedOrgs[0] ? { orgId: normalizedOrgs[0].id, orgName: normalizedOrgs[0].name } : {}),
       };
       await this.saveConsoleSession(session, normalized, generation);
+      this.notifyChange();
       return session;
     }
     throw new Error("OpenCode Console device code expired; start sign-in again");
@@ -253,41 +218,52 @@ export class OpenCodeAuth {
         throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
       }
     });
+    this.notifyChange();
   }
 
-  async signOut(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
-    // Signing out clears the mode's service-account key. For Console it also
-    // clears the device-flow session so the next sign-in starts clean; Go
-    // device sign-ins share that session, so it is intentionally preserved.
-    await this.clearApiKey(mode);
-    if (mode !== "console") return;
+  async signOut(profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
+    // Clears the account's device-flow session so the next sign-in starts
+    // clean. Invalidation happens before any await so concurrent session
+    // operations cannot persist into a signed-out account.
     const normalized = normalizeConsoleProfile(profile);
     this.invalidateProfile(normalized);
     await this.mutateSession(normalized, async () => {
       await this.secrets.delete(consoleSessionKey(normalized));
-      await this.mutateConsoleProfileIndex((profiles) => profiles.delete(normalized));
     });
+    this.notifyChange();
   }
 
+  /**
+   * Signed-in device accounts, derived from the stored sessions themselves.
+   * There is no separate profile index to keep in sync; the default account
+   * is included whenever its session exists.
+   */
   async listConsoleProfiles(): Promise<string[]> {
-    let candidates: string[] = [];
+    // Device accounts are derived from the stored sessions themselves; there
+    // is no separate profile index to keep in sync.
+    let keys: string[] = [];
     try {
-      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
-      if (Array.isArray(parsed)) candidates = parsed.filter((value): value is string => typeof value === "string");
+      keys = await this.secrets.keys();
     } catch {
-      // A corrupt index is rebuilt from the legacy default session.
+      return [];
     }
-    candidates.push(DEFAULT_CONSOLE_PROFILE);
     const profiles: string[] = [];
-    for (const candidate of candidates) {
+    const candidates = keys.flatMap((key) => {
+      if (!key.startsWith(CONSOLE_SESSION_KEY)) return [];
+      return [key === CONSOLE_SESSION_KEY ? DEFAULT_CONSOLE_PROFILE : key.slice(CONSOLE_SESSION_KEY.length + 1)];
+    });
+    const sessions = await Promise.all(candidates.map(async (candidate) => {
       try {
         const profile = normalizeConsoleProfile(candidate);
-        if (!profiles.includes(profile) && await this.getConsoleSession(profile)) profiles.push(profile);
+        return (await this.getConsoleSession(profile)) ? profile : undefined;
       } catch {
-        // Invalid index entries are ignored.
+        // Unrelated keys with the same prefix are ignored.
       }
+    }));
+    for (const profile of sessions) {
+      if (profile && !profiles.includes(profile)) profiles.push(profile);
     }
-    return profiles.sort();
+    return profiles.sort((left, right) => left.localeCompare(right));
   }
 
   private async refreshConsoleSession(
@@ -348,18 +324,6 @@ export class OpenCodeAuth {
 
   private async storeConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
     await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
-    await this.mutateConsoleProfileIndex((profiles) => { profiles.add(profile); });
-  }
-
-  private async readConsoleProfileIndex(): Promise<Set<string>> {
-    try {
-      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
-      return new Set(Array.isArray(parsed) ? parsed.flatMap((value) => {
-        try { return typeof value === "string" ? [normalizeConsoleProfile(value)] : []; } catch { return []; }
-      }) : []);
-    } catch {
-      return new Set<string>();
-    }
   }
 
   private async mutateSession(profile: string, operation: () => Promise<void>): Promise<void> {
@@ -369,16 +333,6 @@ export class OpenCodeAuth {
     try { await current; } finally {
       if (this.sessionMutations.get(profile) === current) this.sessionMutations.delete(profile);
     }
-  }
-
-  private async mutateConsoleProfileIndex(operation: (profiles: Set<string>) => void): Promise<void> {
-    const current = this.profileIndexMutation.catch(() => undefined).then(async () => {
-      const profiles = await this.readConsoleProfileIndex();
-      operation(profiles);
-      await this.secrets.store(CONSOLE_PROFILES_KEY, JSON.stringify([...profiles].sort()));
-    });
-    this.profileIndexMutation = current;
-    await current;
   }
 
   private profileGeneration(profile: string): number {

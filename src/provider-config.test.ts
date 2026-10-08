@@ -17,12 +17,16 @@ test("declares native API-key and Console-profile provider entries", () => {
     assert.equal(provider.managementCommand, undefined);
     const configuration = provider.configuration as {
       required?: string[];
-      properties?: Record<string, { secret?: boolean }>;
+      properties?: Record<string, { secret?: boolean; pattern?: string }>;
     };
-    const required = configuration.required;
-    assert.deepEqual(required, vendor === "opencodeconsole" ? undefined : ["apiKey"]);
-    if (vendor !== "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
-    if (vendor === "opencodeconsole") assert.equal(configuration.properties?.apiKey.secret, true);
+    // Both vendors accept either a service-account key or an account profile;
+    // neither field is required so entries may also be keyless device
+    // accounts. No `name` property is contributed: VS Code's group name
+    // serves as the stable entry label.
+    assert.equal(configuration.required, undefined);
+    assert.equal(configuration.properties?.apiKey.secret, true);
+    assert.match(configuration.properties?.profile.pattern ?? "", /^\^/);
+    assert.equal(configuration.properties?.name, undefined);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
     assert.match(
@@ -37,13 +41,12 @@ test("declares native API-key and Console-profile provider entries", () => {
 });
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
-  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5"), "profile-work::openai/gpt-5");
-  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5"), "openai/gpt-5");
-  assert.equal(qualifiedModelId("legacy", "openai/gpt-5"), "openai/gpt-5");
-  assert.throws(
-    () => consoleProfileFromConfiguration({ profile: "work profile" }),
-    /Update this provider entry in Manage Language Models/,
-  );
+  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "profile-work::openai/gpt-5");
+  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5", "console"), "openai/gpt-5");
+  assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "legacy::openai/gpt-5");
+  // The profile field validates leniently; arbitrary strings are kept as
+  // entry aliases and only match accounts when a sign-in used the same text.
+  assert.equal(consoleProfileFromConfiguration({ profile: "wrk_01KQ25AJRFKQDYB04QPEM2PN5C" }), "wrk_01kq25ajrfkqdyb04qpem2pn5c");
 });
 
 test("restores only a valid persisted Console management profile", () => {

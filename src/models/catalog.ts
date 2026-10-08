@@ -69,7 +69,7 @@ export class ModelCatalog {
   }
 
   async refresh(mode: OpenCodeMode, credential: Credential | undefined, freeOnly: boolean, signal?: AbortSignal): Promise<OpenCodeModel[]> {
-    const orgScoped = mode === "console" && !credentialIsApiKey(credential ?? { mode, token: "" });
+    const orgScoped = mode === "console" && credential !== undefined && !credentialIsApiKey(credential);
     const models = mode === "console" && credential?.server && !credentialIsApiKey(credential)
       ? await this.loadConsole(credential, signal)
       : await this.loadPublic(mode, credential, freeOnly, signal);
