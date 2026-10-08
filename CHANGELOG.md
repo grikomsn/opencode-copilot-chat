@@ -1,5 +1,51 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 659ac20: Require an explicit stable entryId for native API-key entries. Separate model selection identities from credential, catalog, and usage scopes, reject stale handles after key rotation, and validate account aliases. Serialize discovery journal mutations and keep account details out of journal records.
+
+  Add entryId to existing key entries and reselect models. All model IDs are qualified, including the default device-session profile; display-name inference and older usage migration are removed.
+
+### Minor Changes
+
+- c8c976b: Account separation across OpenCode providers, with a simpler split of
+  responsibilities. The extension now manages only OpenCode Console
+  device-code accounts (named profiles): one signed-in session token
+  authenticates both the Console and Go gateways, so a Go entry can reference
+  a different account by profile, or both gateways can share one account.
+  Service-account keys are never stored by the extension; command-managed
+  key sign-ins are removed and keys stay user-managed in VS Code provider
+  entries (with an optional stable entry label that keeps model IDs and usage
+  scopes stable across key rotation).
+  Model IDs are now qualified per credential so multiple entries of one vendor
+  cannot collide; the default Console device profile and the command-managed Go
+  credential keep unqualified IDs for compatibility with earlier model selections.
+  Signed-out sessions no longer race credential refreshes, 401 retries only
+  refresh session-backed credentials, Go device-code sign-in prompts for an
+  account profile, account listings derive from stored sessions, credential
+  changes re-provision every provider entry automatically, sign-in flows end
+  with an "Add OpenCode entry" step, and the new **Review entries
+  and accounts** action reconciles stored accounts against the model entries
+  VS Code's Language Models editor knows about. Inline completion requests
+  authenticate with the chosen account's session via
+  `opencode.inlineSuggestionsAccount`.
+
+### Patch Changes
+
+- 02c0b0e: Preserve thinking before answers and parallel tool calls, and explicitly close thinking when visible output or stream completion begins. Keep Responses item IDs, call IDs, and output indexes linked so interleaved arguments reach the correct tool. Preserve chat calls when a gateway alternates indexed and ID-only deltas.
+
+  Parse the final SSE block before validating completion, and generate distinct fallback IDs for simultaneous tool calls and Google calls arriving in separate stream events.
+
+- 00e6c7a: Fail chat responses with an explicit error when the upstream stream ends without
+  a completion reason, is cut off by the model's output token limit or content
+  filter, or stalls past the request/stream idle timeout, instead of stopping
+  mid-inference silently. Responses-stream parallel tool calls now flush
+  individually as each completes, a completed message item no longer flushes
+  in-flight sibling tool calls, and chat tool deltas without an index no longer
+  fragment into malformed calls.
+
 ## 1.0.1
 
 ### Patch Changes
