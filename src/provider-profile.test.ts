@@ -40,16 +40,19 @@ test("hashes key credentials into stable fingerprints", () => {
   assert.equal(apiKeyCredentialId("dup"), apiKeyCredentialId("dup"));
 });
 
-test("derives stable entry credential IDs from a validated label", () => {
-  assert.equal(stableEntryCredentialId("Work.Team-1"), "entry-work.team-1");
-  assert.equal(entryNameFromConfiguration({ name: " Work " }), "work");
+test("derives stable entry labels from VS Code group names without throwing", () => {
+  // Group names come from the Language Models editor and may contain spaces
+  // and capitals; they fold into a safe slug instead of rejecting entries.
+  assert.equal(stableEntryCredentialId("wayfindr-se"), "entry-wayfindr-se");
+  assert.equal(entryNameFromConfiguration({ name: "Wayfindr SE" }), "wayfindr-se");
+  assert.equal(entryNameFromConfiguration({ name: "Nibras Enterprises" }), "nibras-enterprises");
+  assert.equal(entryNameFromConfiguration({ name: "  Work  " }), "work");
   assert.equal(entryNameFromConfiguration({ name: "  " }), undefined);
   assert.equal(entryNameFromConfiguration({ name: 42 }), undefined);
   assert.equal(entryNameFromConfiguration(undefined), undefined);
-  assert.throws(
-    () => entryNameFromConfiguration({ name: "bad label!" }),
-    /Invalid OpenCode provider entry label\. Update this provider entry in Manage Language Models\./,
-  );
+  // Names with no usable characters fall back to the key fingerprint rather
+  // than erroring the whole entry.
+  assert.equal(entryNameFromConfiguration({ name: "!!!" }), undefined);
 });
 
 test("restores the default console profile when persisted state is unusable", () => {

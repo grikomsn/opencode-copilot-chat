@@ -14,25 +14,28 @@ export function consoleProfileFromConfiguration(configuration: Readonly<Record<s
 }
 
 /**
- * Validates the optional entry label that keeps native service-key entries on
- * a stable credential identity; absent or empty labels resolve to undefined.
+ * Derives a stable credential label from VS Code's provider-entry group
+ * name (the `name` field of the stored entry). Spaces and other invalid
+ * characters fold into dashes; an unusable result resolves to undefined so
+ * the entry falls back to its key fingerprint and never fails over its
+ * label.
  */
 export function entryNameFromConfiguration(configuration: Readonly<Record<string, unknown>> | undefined): string | undefined {
   const value = typeof configuration?.name === "string" ? configuration.name.trim() : "";
   if (!value) return undefined;
-  try {
-    return normalizeConsoleProfile(value);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid OpenCode provider entry label. Update this provider entry in Manage Language Models. ${message}`);
-  }
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 64);
+  return /^[a-z0-9]/.test(slug) ? slug : undefined;
 }
 
 /**
  * Credential identity for a native API-key entry. Service keys are
  * user-managed in VS Code provider configuration, so entries are identified
- * by their key fingerprint unless the user gives them a stable label
- * (`stableEntryCredentialId`).
+ * by their stable group-name label when one exists, and by their key
+ * fingerprint otherwise.
  */
 export function apiKeyCredentialId(apiKey: string): string {
   return `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`;

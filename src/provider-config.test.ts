@@ -20,11 +20,13 @@ test("declares native API-key and Console-profile provider entries", () => {
       properties?: Record<string, { secret?: boolean; pattern?: string }>;
     };
     // Both vendors accept either a service-account key or an account profile;
-    // neither field is required so entries may also use account-scoped keys.
+    // neither field is required so entries may also be keyless device
+    // accounts. No `name` property is contributed: VS Code's group name
+    // serves as the stable entry label.
     assert.equal(configuration.required, undefined);
     assert.equal(configuration.properties?.apiKey.secret, true);
     assert.match(configuration.properties?.profile.pattern ?? "", /^\^/);
-    assert.match(configuration.properties?.name.pattern ?? "", /^\^\(\|/);
+    assert.equal(configuration.properties?.name, undefined);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
     assert.match(

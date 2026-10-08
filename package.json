@@ -386,12 +386,6 @@
               "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in). Used when no API key is set.",
               "default": "default",
               "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
-            },
-            "name": {
-              "type": "string",
-              "title": "Entry Label",
-              "description": "Optional stable label distinguishing multiple entries that use different service-account keys. Model IDs stay constant when a labeled key is rotated.",
-              "pattern": "^(|[a-z0-9][a-z0-9._-]{0,63})$"
             }
           }
         }
@@ -414,12 +408,6 @@
               "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in). The session token also authenticates the Go gateway. Used when no API key is set.",
               "default": "default",
               "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
-            },
-            "name": {
-              "type": "string",
-              "title": "Entry Label",
-              "description": "Optional stable label distinguishing multiple entries that use different service-account keys. Model IDs stay constant when a labeled key is rotated.",
-              "pattern": "^(|[a-z0-9][a-z0-9._-]{0,63})$"
             }
           }
         }
