@@ -14,7 +14,7 @@
 //   node scripts/refresh-models.mjs --ci --report-file model-resync-report.md
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +49,7 @@ async function fetchJson(url, init = {}) {
 
 function requireBundled() {
   const resolved = path.join(ROOT, "out", "models/metadata.js");
-  if (!existsSync(resolved)) {
+  if (!existsSync(resolved) || srcNewerThan(resolved)) {
     const compiled = spawnSync("npm", ["run", "compile"], { cwd: ROOT, encoding: "utf8" });
     if (compiled.status) {
       console.error(compiled.stderr);
@@ -57,6 +57,31 @@ function requireBundled() {
     }
   }
   return require_(resolved);
+}
+
+/** True when any TypeScript source is newer than the compiled target. */
+function srcNewerThan(target) {
+  const compiled = statSync(target).mtimeMs;
+  const stack = [path.join(ROOT, "src")];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (/\.(?:ts|mts)$/.test(entry.name) && statSync(full).mtimeMs > compiled) return true;
+    }
+  }
+  return false;
+}
+
+function envKey(name) {
+  const fromEnvironment = process.env[name]?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  const file = path.join(ROOT, ".env");
+  if (!existsSync(file)) return undefined;
+  const match = readFileSync(file, "utf8").match(new RegExp(`^${name}=(.*)$`, "m"));
+  const value = match?.[1]?.trim();
+  return value || undefined;
 }
 
 function isInternalTestModel(id) {
@@ -167,6 +192,7 @@ function serializeMirror(key, canonical) {
 }
 
 const main = async () => {
+  const apiKey = envKey("OPENCODE_API_KEY");
   const [zen, go, modelsDev] = await Promise.all([
     fetchJson("https://opencode.ai/zen/v1/models"),
     fetchJson("https://opencode.ai/zen/go/v1/models"),
@@ -179,7 +205,25 @@ const main = async () => {
     ["opencode", liveIds(zen)],
     ["opencode-go", liveIds(go)],
   ]);
-  log(`Live discovery: ${live.get("opencode").size} Console ids, ${live.get("opencode-go").size} Go ids`);
+  if (apiKey) {
+    // Authenticated discovery is what signed-in users see; union it with the
+    // anonymous lists so ids served only to authenticated accounts are also
+    // considered. A failed authenticated probe is non-fatal: anonymous
+    // discovery remains the baseline.
+    try {
+      const [zenAuth, goAuth] = await Promise.all([
+        fetchJson("https://opencode.ai/zen/v1/models", { headers: { Authorization: `Bearer ${apiKey}` } }),
+        fetchJson("https://opencode.ai/zen/go/v1/models", { headers: { Authorization: `Bearer ${apiKey}` } }),
+      ]);
+      for (const [provider, payload] of [["opencode", zenAuth], ["opencode-go", goAuth]]) {
+        const union = new Set([...live.get(provider), ...liveIds(payload)]);
+        live.set(provider, union);
+      }
+    } catch (error) {
+      log(`WARNING: authenticated discovery probe failed (${error instanceof Error ? error.message : error}); continuing with anonymous lists.`);
+    }
+  }
+  log(`Live discovery: ${live.get("opencode").size} Console ids, ${live.get("opencode-go").size} Go ids${apiKey ? " (anonymous + authenticated)" : ""}`);
 
   const canonical = { opencode: modelsDev.opencode?.models ?? {}, "opencode-go": modelsDev["opencode-go"]?.models ?? {} };
   log(`models.dev: ${Object.keys(canonical.opencode).length} Console models, ${Object.keys(canonical["opencode-go"]).length} Go models`);

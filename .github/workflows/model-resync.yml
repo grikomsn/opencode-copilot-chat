@@ -27,6 +27,8 @@ jobs:
       - name: Compile bundled metadata
         run: npm run compile
       - name: Probe live sources and re-mirror canonical data
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: node scripts/refresh-models.mjs --ci --report-file model-resync-report.md
       - name: Create resync pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
