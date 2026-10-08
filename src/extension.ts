@@ -11,7 +11,6 @@ import { formatUsageStatus, formatUsageTooltip } from "./usage/presentation";
 import type { OpenCodeUsageSnapshot } from "./usage/domain";
 import { activeConsoleProfileFromState } from "./provider-profile";
 
-const LEGACY_USAGE_STATE_KEY = "opencode.usageSnapshot.v1";
 const USAGE_STATE_KEY = "opencode.usageSnapshots.v2";
 const ACTIVE_CONSOLE_PROFILE_STATE_KEY = "opencode.activeConsoleProfile.v1";
 
@@ -20,14 +19,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const auth = new OpenCodeAuth(context.secrets);
   const version = context.extension.packageJSON.version as string;
   const userAgent = `opencode-copilot-chat/${version} VSCode/${vscode.version}`;
-  // Versions before the Console transition tracked usage under `zen:*` scopes;
-  // those snapshots are migrated to `console:*` and shown for the Console
-  // provider's legacy credential scope.
-  const legacyUsage = context.globalState.get<Readonly<Record<string, OpenCodeUsageSnapshot>>>(USAGE_STATE_KEY);
-  const migratedUsage = legacyUsage
-    ? Object.fromEntries(Object.entries(legacyUsage).map(([scope, usage]) => [migrateUsageScope(scope), usage]))
-    : { "console:legacy": context.globalState.get<OpenCodeUsageSnapshot>(LEGACY_USAGE_STATE_KEY) ?? {} };
-  const initialUsage = migratedUsage;
+  const initialUsage = context.globalState.get<Readonly<Record<string, OpenCodeUsageSnapshot>>>(USAGE_STATE_KEY) ?? {};
   const activeConsoleProfile = activeConsoleProfileFromState(context.globalState.get<unknown>(ACTIVE_CONSOLE_PROFILE_STATE_KEY));
   const metadata = new ModelsDevMetadata(context.globalState);
   const providers = Object.fromEntries(Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) => [
@@ -39,7 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
       definition.mode,
       () => new ModelCatalog(fetch, context.globalState, metadata),
       initialUsage,
-      definition.mode === "console" ? activeConsoleProfile : undefined,
+      activeConsoleProfile,
       context.globalState,
     ),
   ])) as Record<keyof typeof OPENCODE_PROVIDER_DEFINITIONS, OpenCodeProvider>;
@@ -59,6 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
       for (const provider of Object.values(providers)) provider.fireDidChange();
     }),
     providers.console.onDidChangeActiveConsoleProfile((profile) => {
+      providers.go.setActiveConsoleProfile(profile);
       void context.globalState.update(ACTIVE_CONSOLE_PROFILE_STATE_KEY, profile);
     }),
     ...Object.values(providers).map((provider) => provider.onDidChangeUsage(({ scope, usage }) => {
@@ -110,6 +103,3 @@ function updateUsageStatusVisibility(item: vscode.StatusBarItem): void {
 }
 
 /** Maps pre-Console usage scopes (`zen:*`) onto Console equivalents. */
-function migrateUsageScope(scope: string): string {
-  return scope === "zen:legacy" ? "console:legacy" : scope.replace(/^zen:/, "console:");
-}

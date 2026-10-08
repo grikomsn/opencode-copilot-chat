@@ -21,17 +21,17 @@ test("declares native API-key and Console-profile provider entries", () => {
     };
     // Both vendors accept either a service-account key or an account profile;
     // neither field is required so entries may also be keyless device
-    // accounts. No `name` property is contributed: VS Code's group name
-    // serves as the stable entry label.
+    // accounts. API-key entries validate the explicit entryId at provisioning.
     assert.equal(configuration.required, undefined);
     assert.equal(configuration.properties?.apiKey.secret, true);
     assert.match(configuration.properties?.profile.pattern ?? "", /^\^/);
     assert.equal(configuration.properties?.name, undefined);
+    assert.match(configuration.properties?.entryId.pattern ?? "", /^\^/);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
     assert.match(
       manifest.contributes.commands.find((item) => item.command === command)?.title ?? "",
-      /Legacy Key \/ Active Console Profile/,
+      /Active Console Profile/,
     );
   }
   assert.match(
@@ -42,10 +42,9 @@ test("declares native API-key and Console-profile provider entries", () => {
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
   assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "profile-work::openai/gpt-5");
-  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5", "console"), "openai/gpt-5");
+  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5", "console"), "profile-default::openai/gpt-5");
   assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "legacy::openai/gpt-5");
-  // The profile field validates leniently; arbitrary strings are kept as
-  // entry aliases and only match accounts when a sign-in used the same text.
+  // Valid IDs can name accounts not signed in yet.
   assert.equal(consoleProfileFromConfiguration({ profile: "wrk_01KQ25AJRFKQDYB04QPEM2PN5C" }), "wrk_01kq25ajrfkqdyb04qpem2pn5c");
 });
 

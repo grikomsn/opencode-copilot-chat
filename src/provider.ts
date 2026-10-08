@@ -15,7 +15,8 @@ import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport
 import { OpenCodeStreamParser, validateStreamCompletion } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
 import { modelPricingFields, openCodeModelCost } from "./models/pricing";
-import { apiKeyCredentialId, activeConsoleProfileFromState, consoleProfileFromConfiguration, entryNameFromConfiguration, qualifiedModelId, stableEntryCredentialId, type CredentialOrigin } from "./provider-profile";
+import { apiKeyCredentialId, activeConsoleProfileFromState, consoleProfileFromConfiguration, entryIdFromConfiguration, qualifiedModelId, stableEntryCredentialId, type CredentialOrigin } from "./provider-profile";
+import { NativeKeyEntries } from "./provider-credentials";
 import { journalKey, type EntryJournalRecord, updateJournalEntry } from "./provider-journal";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
@@ -23,6 +24,7 @@ export interface OpenCodeModelInformation extends vscode.LanguageModelChatInform
   readonly catalogId: string;
   readonly mode: OpenCodeMode;
   readonly credentialId: string;
+  readonly credentialRef: string;
   readonly origin?: CredentialOrigin;
   readonly profile?: string;
 }
@@ -33,9 +35,10 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   private readonly activeConsoleProfileEmitter = new vscode.EventEmitter<string>();
   private readonly catalogs = new Map<string, ModelCatalog>();
   private readonly credentials = new Map<string, Credential>();
+  private readonly keyEntries = new NativeKeyEntries();
   private readonly usageByScope = new Map<string, OpenCodeUsageSnapshot>();
-  private activeCredentialId = "legacy";
-  private lastUsedCredentialId = "legacy";
+  private activeCredentialId = `profile-${DEFAULT_CONSOLE_PROFILE}`;
+  private lastUsedCredentialId = `profile-${DEFAULT_CONSOLE_PROFILE}`;
   private activeProfile: string;
 
   readonly onDidChangeLanguageModelChatInformation = this.changeEmitter.event;
@@ -78,10 +81,10 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
 
   async refreshModels(): Promise<readonly OpenCodeModel[]> {
     const mode = this.mode;
-    const credentialId = mode === "console" ? `profile-${this.activeProfile}` : "legacy";
+    const credentialId = `profile-${this.activeProfile}`;
     this.activeCredentialId = credentialId;
     // Command-managed refresh always targets one signed-in account: the
-    // active profile for Console, the default account for Go. Native model
+    // active profile for both gateways. Native model
     // entries resolve their own credentials through VS Code configuration.
     const credential = await this.auth.getCredential(mode, false, this.activeProfile);
     if (!credential) {
@@ -110,9 +113,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       return [];
     }
     if (!entry) return [];
-    const { credential, credentialId, profile, origin, label } = entry;
-    this.credentials.set(credentialId, credential);
-    const catalog = this.catalogFor(credentialId);
+    const { credential, credentialId, credentialRef, profile, origin, label } = entry;
+    if (origin === "key") {
+      const retired = this.keyEntries.register(credentialId, credentialRef, credential);
+      if (retired) this.catalogs.delete(retired);
+    } else this.credentials.set(credentialRef, credential);
+    const catalog = this.catalogFor(credentialRef);
     const maxAge = Math.max(1, vscode.workspace.getConfiguration("opencode").get<number>("catalogCacheMinutes", 5)) * 60_000;
     if (!catalog.isFresh(mode, maxAge, catalogScope(mode, credential, this.freeOnly()))) {
       const controller = new AbortController();
@@ -123,7 +129,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     }
     const models = catalog.list(mode);
     await this.recordJournalEntry(credentialId, credential, { profile, label, modelCount: models.length });
-    return models.map((model) => this.toInformation(model, mode, credentialId, origin, profile));
+    return models.map((model) => this.toInformation(model, mode, credentialId, origin, profile, credentialRef));
   }
 
   async provideLanguageModelChatResponse(
@@ -134,16 +140,19 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     token: vscode.CancellationToken,
   ): Promise<void> {
     const mode = information.mode;
-    this.lastUsedCredentialId = information.credentialId;
+    if (information.origin === "key" && !this.keyEntries.matches(information.credentialId, information.credentialRef)) {
+      throw new Error("This model belongs to a replaced or removed entry. Refresh it in Manage Language Models.");
+    }
+    this.lastUsedCredentialId = information.credentialRef;
     // Key-backed entries keep their in-memory credential; session-backed
     // entries re-resolve from SecretStorage on every request so refreshes and
     // account changes apply live for both vendors.
     let credential = information.origin === "key"
-      ? this.credentials.get(information.credentialId)
+      ? this.keyEntries.get(information.credentialRef)
       : await this.auth.getCredential(mode, false, information.profile ?? DEFAULT_CONSOLE_PROFILE);
     if (!credential) throw new Error(`The credential for this OpenCode provider entry is unavailable. Update it in Manage Language Models.`);
-    this.credentials.set(information.credentialId, credential);
-    const catalog = this.catalogFor(information.credentialId);
+    if (information.origin !== "key") this.credentials.set(information.credentialRef, credential);
+    const catalog = this.catalogFor(information.credentialRef);
     const model = catalog.get(mode, information.catalogId) ?? catalog.list(mode).find((item) => item.rawModelId === information.rawModelId);
     if (!model) throw new Error(`OpenCode model is no longer available: ${information.rawModelId}`);
     const contextCap = resolveContextCap(resolveContextSize(requestModelConfiguration(options)), advertisedModelLimits(model).maxInputTokens);
@@ -212,7 +221,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
             authRefreshed = true;
             credential = await this.auth.getCredential(mode, true, information.profile ?? DEFAULT_CONSOLE_PROFILE);
             if (!credential) throw new Error("OpenCode credentials expired; sign in again");
-            this.credentials.set(information.credentialId, credential);
+            this.credentials.set(information.credentialRef, credential);
             continue;
           }
           if (!response.ok) {
@@ -247,19 +256,19 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
               for (const event of parser.push(decoder.decode(part.value, { stream: true }))) {
                 sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
                 const usage = reporter.report(event);
-                if (usage) this.setUsage(usage, information.credentialId);
+                if (usage) this.setUsage(usage, information.credentialRef);
               }
               if (token.isCancellationRequested) return;
             }
             for (const event of parser.push(decoder.decode())) {
               sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
               const usage = reporter.report(event);
-              if (usage) this.setUsage(usage, information.credentialId);
+              if (usage) this.setUsage(usage, information.credentialRef);
             }
             for (const event of parser.finish()) {
               sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
               const usage = reporter.report(event);
-              if (usage) this.setUsage(usage, information.credentialId);
+              if (usage) this.setUsage(usage, information.credentialRef);
             }
             validateStreamCompletion(model.rawModelId, parser.finishReason);
           } finally {
@@ -305,8 +314,6 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       updatedAt: Date.now(),
       ...(entry.profile ? { profile: entry.profile } : {}),
       ...(entry.label ? { label: entry.label } : {}),
-      ...(credential.email ? { email: credential.email } : {}),
-      ...(credential.orgName ? { orgName: credential.orgName } : {}),
     };
     await updateJournalEntry(this.journal, journalKey(this.mode, credentialId), record);
   }
@@ -317,6 +324,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     credentialId: string,
     origin: CredentialOrigin = "session",
     profile?: string,
+    credentialRef = credentialId,
   ): OpenCodeModelInformation {
     const config = vscode.workspace.getConfiguration("opencode");
     const family = thinkingFamilyForModel(model);
@@ -339,6 +347,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       catalogId: model.id,
       mode,
       credentialId,
+      credentialRef,
       origin,
       ...(profile ? { profile } : {}),
     };
@@ -357,6 +366,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   private async entryFromConfiguration(configuration: Readonly<Record<string, unknown>>): Promise<{
     credential: Credential;
     credentialId: string;
+    credentialRef: string;
     origin: CredentialOrigin;
     profile?: string;
     label?: string;
@@ -365,21 +375,19 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     // (device-code) profiles, mirroring the upstream key method's precedence.
     const apiKey = typeof configuration.apiKey === "string" ? configuration.apiKey.trim() : "";
     if (apiKey) {
-      const label = entryNameFromConfiguration(configuration);
+      const label = entryIdFromConfiguration(configuration);
       return {
         credential: { mode: this.mode, token: apiKey, origin: "key" },
-        credentialId: label ? stableEntryCredentialId(label) : apiKeyCredentialId(apiKey),
+        credentialId: stableEntryCredentialId(label),
+        credentialRef: apiKeyCredentialId(apiKey),
         origin: "key",
         ...(label ? { label } : {}),
       };
     }
-    // The profile field is a human alias for a device-code account (typed in
-    // the sign-in flow); values that name no signed-in account resolve to no
-    // credential rather than failing the entry, since users may also keep
-    // arbitrary distinct strings here just to tell entries apart.
+    // Device-session entries resolve their explicit account profile on every request.
     const profile = consoleProfileFromConfiguration(configuration);
     const credential = await this.auth.getCredential(this.mode, false, profile);
-    return credential ? { credential, credentialId: `profile-${profile}`, origin: credential.origin, profile } : undefined;
+    return credential ? { credential, credentialId: `profile-${profile}`, credentialRef: `profile-${profile}`, origin: credential.origin, profile } : undefined;
   }
   private scopeFor(credentialId: string): string { return `${this.mode}:${credentialId}`; }
 

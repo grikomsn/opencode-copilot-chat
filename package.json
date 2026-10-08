@@ -67,11 +67,11 @@
       },
       {
         "command": "opencodeCopilot.refreshModels",
-        "title": "OpenCode: Refresh Models (Legacy Key / Active Console Profile)"
+        "title": "OpenCode: Refresh Models (Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.testConnection",
-        "title": "OpenCode: Test Connection (Legacy Key / Active Console Profile)"
+        "title": "OpenCode: Test Connection (Active Console Profile)"
       },
       {
         "command": "opencodeCopilot.showUsage",
@@ -386,6 +386,12 @@
               "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in). Used when no API key is set.",
               "default": "default",
               "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            "entryId": {
+              "type": "string",
+              "title": "Stable entry ID",
+              "description": "Required for API-key entries. Unique lowercase ID for model selections; keep it when rotating the key. Group display names are independent.",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
             }
           }
         }
@@ -407,6 +413,12 @@
               "title": "OpenCode Console Account Profile",
               "description": "Account profile ID created with OpenCode: Add Console Account (device-code sign-in). The session token also authenticates the Go gateway. Used when no API key is set.",
               "default": "default",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            "entryId": {
+              "type": "string",
+              "title": "Stable entry ID",
+              "description": "Required for API-key entries. Unique lowercase ID for model selections; keep it when rotating the key. Group display names are independent.",
               "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
             }
           }
