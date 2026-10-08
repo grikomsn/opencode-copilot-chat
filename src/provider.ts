@@ -362,9 +362,11 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         ...(label ? { label } : {}),
       };
     }
+    // The profile field is a human alias for a device-code account (typed in
+    // the sign-in flow); values that name no signed-in account resolve to no
+    // credential rather than failing the entry, since users may also keep
+    // arbitrary distinct strings here just to tell entries apart.
     const profile = consoleProfileFromConfiguration(configuration);
-    // Account lookups resolve the account's stored key first and its device
-    // session otherwise, so one named account serves either gateway.
     const credential = await this.auth.getCredential(this.mode, false, profile);
     return credential ? { credential, credentialId: `profile-${profile}`, origin: credential.origin, profile } : undefined;
   }

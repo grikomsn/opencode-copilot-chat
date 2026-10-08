@@ -9,18 +9,18 @@ import {
   stableEntryCredentialId,
 } from "./provider-profile";
 
-test("normalizes native provider-entry console profiles", () => {
+test("reads provider-entry profile aliases leniently", () => {
   assert.equal(consoleProfileFromConfiguration({ profile: "  Work-Team  " }), "work-team");
+  // Users may keep arbitrary distinct strings (even raw workspace IDs) purely
+  // to tell entries apart; they name no signed-in account until sign-in.
+  assert.equal(consoleProfileFromConfiguration({ profile: "org_01M07AD00NAWYBRZZBEX395FD7" }), "org_01m07ad00nawybrzzbex395fd7");
+  assert.equal(consoleProfileFromConfiguration({ profile: "bad profile!" }), "bad profile!");
   assert.equal(consoleProfileFromConfiguration(undefined), "default");
   assert.equal(consoleProfileFromConfiguration({}), "default");
   assert.equal(consoleProfileFromConfiguration({ profile: 42 }), "default");
-});
-
-test("reports provider-entry guidance when a console profile is invalid", () => {
-  assert.throws(
-    () => consoleProfileFromConfiguration({ profile: "bad profile!" }),
-    /Invalid OpenCode Console profile\. Update this provider entry in Manage Language Models\./,
-  );
+  // Punctuation-only or blank-after-trim values fall back to the default account.
+  assert.equal(consoleProfileFromConfiguration({ profile: "!!!" }), "default");
+  assert.equal(consoleProfileFromConfiguration({ profile: "   " }), "default");
 });
 
 test("qualifies model IDs per mode so same-vendor entries cannot collide", () => {

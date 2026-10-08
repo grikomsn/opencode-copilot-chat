@@ -44,10 +44,9 @@ test("qualifies model IDs and reports invalid saved Console profiles", () => {
   assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "profile-work::openai/gpt-5");
   assert.equal(qualifiedModelId("profile-default", "openai/gpt-5", "console"), "openai/gpt-5");
   assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "legacy::openai/gpt-5");
-  assert.throws(
-    () => consoleProfileFromConfiguration({ profile: "work profile" }),
-    /Update this provider entry in Manage Language Models/,
-  );
+  // The profile field validates leniently; arbitrary strings are kept as
+  // entry aliases and only match accounts when a sign-in used the same text.
+  assert.equal(consoleProfileFromConfiguration({ profile: "wrk_01KQ25AJRFKQDYB04QPEM2PN5C" }), "wrk_01kq25ajrfkqdyb04qpem2pn5c");
 });
 
 test("restores only a valid persisted Console management profile", () => {

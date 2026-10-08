@@ -4,13 +4,16 @@ import type { OpenCodeMode } from "./transport/protocol";
 
 export type CredentialOrigin = "key" | "session";
 
+/**
+ * Reads the profile field from a provider entry as a human alias for a
+ * device-code account. The field is validated leniently — trimmed, lowered,
+ * and capped — so users may keep arbitrary distinct strings (even raw
+ * workspace IDs) purely to tell entries apart; such values simply name no
+ * signed-in account until a device sign-in uses matching text.
+ */
 export function consoleProfileFromConfiguration(configuration: Readonly<Record<string, unknown>> | undefined): string {
-  try {
-    return normalizeConsoleProfile(typeof configuration?.profile === "string" ? configuration.profile : DEFAULT_CONSOLE_PROFILE);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid OpenCode Console profile. Update this provider entry in Manage Language Models. ${message}`);
-  }
+  const value = typeof configuration?.profile === "string" ? configuration.profile.trim().toLowerCase().slice(0, 64) : "";
+  return /^[a-z0-9]/.test(value) ? value : DEFAULT_CONSOLE_PROFILE;
 }
 
 /**
@@ -59,7 +62,10 @@ export function qualifiedModelId(credentialId: string, modelId: string, mode: Op
   return unqualified ? modelId : `${credentialId}::${modelId}`;
 }
 
-/** Restores a command-management profile without allowing malformed state to prevent activation. */
+/**
+ * Restores the command-management profile. Persisted values predate the
+ * lenient alias rules, so invalid ones fall back to the default account.
+ */
 export function activeConsoleProfileFromState(value: unknown): string {
   try {
     return typeof value === "string" ? normalizeConsoleProfile(value) : DEFAULT_CONSOLE_PROFILE;
