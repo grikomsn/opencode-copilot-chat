@@ -1,8 +1,8 @@
 # Credential handling
 
-Console and Go API keys added through **Manage Language Models** are marked as secret provider configuration, so VS Code stores every entry securely. The extension places only a short SHA-256-derived reference in model metadata and local usage state. Service-account keys stored via the account commands live per account and per gateway in VS Code Secret Storage, and the older command-managed Console (formerly Zen) and Go defaults remain in Secret Storage for migration and development workflows.
+Service-account API keys are entered by the user in **Manage Language Models** and marked as secret provider configuration, so VS Code stores every entry and the extension never reads, copies, or persists keys. The extension places only a short SHA-256-derived reference in model metadata and local usage state.
 
-Console access and refresh tokens are obtained only through an explicit device-code sign-in initiated in VS Code and stored per named account (profile) in VS Code Secret Storage, with separate refresh locks and organization selection. The extension does not read credentials or sessions from OpenCode or other applications on the local machine.
+The extension manages only OpenCode Console device-code accounts. Access and refresh tokens are obtained exclusively through an explicit device-code sign-in initiated in VS Code and stored per named account (profile) in VS Code Secret Storage, with separate refresh locks and organization selection. One session token authenticates both the Console and Go gateways. The extension does not read credentials or sessions from OpenCode or other applications on the local machine.
 
 The output channel records only status and metadata. It does not record API keys, access tokens, refresh tokens, prompts, response text, or account data.
 

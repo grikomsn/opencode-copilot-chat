@@ -34,13 +34,10 @@ test("qualifies model IDs per mode so same-vendor entries cannot collide", () =>
   assert.equal(qualifiedModelId("key-abc123", "glm-5.3", "go"), "key-abc123::glm-5.3");
 });
 
-test("matches the legacy credential only when the key equals the default account key", () => {
-  assert.equal(apiKeyCredentialId("shared-key", "shared-key"), "legacy");
-  assert.match(apiKeyCredentialId("solo-key", "shared-key"), /^key-[0-9a-f]{16}$/);
-  assert.notEqual(apiKeyCredentialId("solo-key", "shared-key"), "legacy");
-  // The derived identity is a pure function of the key unless it matches.
-  assert.equal(apiKeyCredentialId("dup", "nope"), apiKeyCredentialId("dup"));
-  assert.notEqual(apiKeyCredentialId("dup", "nope"), apiKeyCredentialId("dup-2"));
+test("hashes key credentials into stable fingerprints", () => {
+  assert.match(apiKeyCredentialId("solo-key"), /^key-[0-9a-f]{16}$/);
+  assert.notEqual(apiKeyCredentialId("solo-key"), apiKeyCredentialId("solo-key-2"));
+  assert.equal(apiKeyCredentialId("dup"), apiKeyCredentialId("dup"));
 });
 
 test("derives stable entry credential IDs from a validated label", () => {

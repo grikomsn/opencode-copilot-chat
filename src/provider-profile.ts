@@ -29,14 +29,13 @@ export function entryNameFromConfiguration(configuration: Readonly<Record<string
 }
 
 /**
- * Credential identity for a native API-key entry. A key that matches the
- * default account's stored key for the gateway keeps the historical `legacy`
- * identity so command-managed usage tracking does not fork; other keys are
- * hashed. Use a per-entry label (`stableEntryCredentialId`) when the identity
- * must survive key rotation.
+ * Credential identity for a native API-key entry. Service keys are
+ * user-managed in VS Code provider configuration, so entries are identified
+ * by their key fingerprint unless the user gives them a stable label
+ * (`stableEntryCredentialId`).
  */
-export function apiKeyCredentialId(apiKey: string, legacyToken?: string): string {
-  return legacyToken === apiKey ? "legacy" : `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`;
+export function apiKeyCredentialId(apiKey: string): string {
+  return `key-${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}`;
 }
 
 export function stableEntryCredentialId(name: string): string {

@@ -87,8 +87,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ...registerCommands(auth, providers, output, () => activeUsageProvider, context.globalState),
     registerInlineCompletions(context, {
       resolveApiKey: async (gateway) => {
-        const account = vscode.workspace.getConfiguration("opencode").get<string>(INLINE_SUGGESTIONS_ACCOUNT_SETTING, DEFAULT_CONSOLE_PROFILE);
-        return (await auth.getAccountKeys(account || DEFAULT_CONSOLE_PROFILE))[gateway];
+        // Only device sessions are managed here; inline completions reuse the
+        // chosen account's session token, which authenticates both gateways.
+        const profile = vscode.workspace.getConfiguration("opencode").get<string>(INLINE_SUGGESTIONS_ACCOUNT_SETTING, DEFAULT_CONSOLE_PROFILE);
+        return (await auth.getCredential(gateway, false, profile || DEFAULT_CONSOLE_PROFILE))?.token;
       },
       output,
       userAgent,

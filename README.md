@@ -17,8 +17,8 @@ This native VS Code `LanguageModelChatProvider` registers Console and Go as sepa
 ## Highlights
 
 - Separate OpenCode Console and Go model groups
-- Service-account API keys (per account or per entry) and Console device-code authentication in VS Code Secret Storage
-- Named accounts that serve both Console and Go from one device session or one set of service keys
+- Service-account API keys stay in each VS Code provider entry; the extension manages only device-code accounts in Secret Storage
+- Named accounts that serve both Console and Go from one device session
 - Credential-scoped live discovery, with six-hour persisted models.dev enrichment for Console and Go
 - Streaming text, reasoning, image inputs, and agent-mode tool calls
 - Model-specific Thinking Effort and Qwen thinking-budget controls
@@ -31,7 +31,7 @@ This native VS Code `LanguageModelChatProvider` registers Console and Go as sepa
 2. Alternatively, run `code --install-extension grikomsn.opencode-bridge-for-copilot-chat`. For manual installation, download the `.vsix` from the [latest GitHub release](https://github.com/grikomsn/opencode-copilot-chat/releases/latest) and run `code --install-extension ./opencode-bridge-for-copilot-chat-<version>.vsix --force`.
 3. For Console or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its service-account API key. Both Console and Go entries can instead reference an OpenCode account by profile ID: Console may use a device-code sign-in, and Go accepts either a device-code profile or an account-scoped Go key.
 4. For device-code sign-in, run **OpenCode: Add Console Account**, choose a profile ID, then add a Console (or Go) entry in **Manage Language Models** with the same profile ID and no API key.
-5. To keep a service-account key on a named account, run **OpenCode: Manage Connection → Add service-account key to an OpenCode account**, then add an entry with that profile ID. Optional entry labels keep model IDs stable when a key is rotated.
+5. Optional: give key-only entries a stable **Entry Label** so their model IDs and usage scope survive key rotation.
 6. Repeat any flow for another account or key — for example Console on a personal account and Go on a work subscription — then enable the models you want in Copilot Chat. **Review entries and accounts** in the Manage Connection menu keeps the two sides in step.
 
 Marketplace installations receive updates through VS Code. Manual VSIX installations can be updated by installing the newest release asset.

@@ -1,14 +1,15 @@
 import type * as vscode from "vscode";
 
 /**
- * Reconciliation journal between the credentials this extension manages and
+ * Reconciliation journal between the accounts this extension manages and
  * the model entries VS Code's Language Models editor last asked about.
  *
  * VS Code exposes no API to enumerate or write provider entries, so the
  * provider records what `provideLanguageModelChatInformation` was called for
- * and commands compare that against SecretStorage state to surface drifted
- * setups: signed-in accounts no entry uses, and entries whose credential is
- * gone.
+ * and commands compare that against SecretStorage sessions to surface drifted
+ * setups: signed-in accounts no entry uses, and session entries whose account
+ * is gone. Service-key entries are user-managed inside VS Code configuration
+ * and never part of the reconciliation.
  */
 
 export const ENTRY_JOURNAL_STATE_KEY = "opencode.entryJournal.v1";
@@ -37,10 +38,8 @@ export type EntryJournal = Readonly<Record<string, EntryJournalRecord>>;
 export interface StoredAccount {
   /** Account profile ID. */
   profile: string;
-  /** Whether the account holds a device-session. */
+  /** Always true: device sessions are the only credential this extension manages. */
   session: boolean;
-  /** Gateways with a stored service-account key for this account. */
-  keys: readonly ("console" | "go")[];
   email?: string;
   orgName?: string;
 }
@@ -55,9 +54,9 @@ export function journalKey(mode: "console" | "go", credentialId: string): string
   return `${mode}:${credentialId}`;
 }
 
-/** Returns the journal entries VS Code last asked about, dropped when credentials were reused with the same identity. */
-export async function readJournal(state: vscode.Memento): Promise<EntryJournal> {
-  return (await state.get<EntryJournal>(ENTRY_JOURNAL_STATE_KEY)) ?? {};
+/** Returns the journal entries VS Code last asked about. */
+export function readJournal(state: vscode.Memento): EntryJournal {
+  return state.get<EntryJournal>(ENTRY_JOURNAL_STATE_KEY) ?? {};
 }
 
 /** Records or clears one entry in the journal; passes `undefined` to remove. */
@@ -73,43 +72,31 @@ export async function updateJournalEntry(
 }
 
 export interface Reconciliation {
-  /** Journal entries whose configured account or key no longer exists. */
+  /** Journal entries whose account session no longer exists. */
   entriesWithoutCredentials: Array<{ key: string; record: EntryJournalRecord }>;
   /** Signed-in accounts no journal entry references. */
   accountsWithoutEntries: StoredAccount[];
 }
 
-/** Which journal keys are expected to back an entry for one account. */
+/** The journal keys expected to back entries for one account. */
 function journalKeysForAccount(account: StoredAccount): string[] {
-  const keys = [journalKey("console", `profile-${account.profile}`), journalKey("go", `profile-${account.profile}`)];
-  // The default account's Go key historically resolves through the command-
-  // managed `legacy` credential, so its entry may carry that identity.
-  if (account.keys.includes("go") && account.profile === "default") keys.push(journalKey("go", "legacy"));
-  return keys;
+  return [journalKey("console", `profile-${account.profile}`), journalKey("go", `profile-${account.profile}`)];
 }
 
 /**
- * Compares the journal against stored accounts. An entry is "without
- * credential" when no stored account matches its identity: profile-backed
- * entries must reference an existing account profile (with a session or a key
- * for that gateway), key-backed entries must carry a profile or label that a
- * stored account provides.
+ * Compares the journal against stored accounts. A session entry is "without
+ * credential" when its referenced account profile has no stored session;
+ * key-origin entries are user-managed inside VS Code provider configuration,
+ * so they are always treated as current here.
  */
 export function reconcile(journal: EntryJournal, accounts: readonly StoredAccount[]): Reconciliation {
   const entriesWithoutCredentials: Reconciliation["entriesWithoutCredentials"] = [];
   for (const [key, record] of Object.entries(journal)) {
+    if (record.origin === "key") continue;
     if (record.profile && accounts.some((account) => account.profile === record.profile)) continue;
-    if (record.origin === "key" && record.label && accounts.some((account) => account.keys.length > 0 && account.profile === record.label)) continue;
-    if (record.origin === "key" && !record.profile && !record.label) {
-      // Anonymous fingerprint-backed entries cannot be matched by name; they
-      // stay valid as long as their key still exists, which the journal
-      // cannot check. Treated as current.
-      continue;
-    }
     entriesWithoutCredentials.push({ key, record });
   }
   const accountsWithoutEntries = accounts.filter((account) => {
-    if (!account.session && account.keys.length === 0) return false;
     return !journalKeysForAccount(account).some((key) => journal[key] !== undefined);
   });
   return { entriesWithoutCredentials, accountsWithoutEntries };

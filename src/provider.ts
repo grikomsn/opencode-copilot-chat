@@ -80,11 +80,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const mode = this.mode;
     const credentialId = mode === "console" ? `profile-${this.activeProfile}` : "legacy";
     this.activeCredentialId = credentialId;
+    // Command-managed refresh always targets one signed-in account: the
+    // active profile for Console, the default account for Go. Native model
+    // entries resolve their own credentials through VS Code configuration.
     const credential = await this.auth.getCredential(mode, false, this.activeProfile);
     if (!credential) {
-      throw new Error(mode === "console"
-        ? `Sign in to OpenCode Console profile “${this.activeProfile}” first`
-        : `No OpenCode Go credential is configured for the default account. Use the sign-in commands or add a Go entry in Manage Language Models.`);
+      throw new Error(`Sign in to an OpenCode Console account${mode === "go" ? " to use the Go gateway" : ` for profile “${this.activeProfile}”`} first`);
     }
     this.credentials.set(this.activeCredentialId, credential);
     const models = await this.catalogFor(this.activeCredentialId).refresh(mode, credential, this.freeOnly());
@@ -353,11 +354,10 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     // (device-code) profiles, mirroring the upstream key method's precedence.
     const apiKey = typeof configuration.apiKey === "string" ? configuration.apiKey.trim() : "";
     if (apiKey) {
-      const legacy = (await this.auth.getAccountKeys(DEFAULT_CONSOLE_PROFILE))[this.mode];
       const label = entryNameFromConfiguration(configuration);
       return {
         credential: { mode: this.mode, token: apiKey, origin: "key" },
-        credentialId: label ? stableEntryCredentialId(label) : apiKeyCredentialId(apiKey, legacy),
+        credentialId: label ? stableEntryCredentialId(label) : apiKeyCredentialId(apiKey),
         origin: "key",
         ...(label ? { label } : {}),
       };
