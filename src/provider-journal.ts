@@ -23,10 +23,6 @@ export interface EntryJournalRecord {
   profile?: string;
   /** Optional stable entry label for service-key entries. */
   label?: string;
-  /** Account email captured during device sign-in, when available. */
-  email?: string;
-  /** Organization the device session was scoped to, when available. */
-  orgName?: string;
   /** Number of models the entry last provided. */
   modelCount: number;
   /** Last time VS Code asked this entry for models (ms epoch). */
@@ -56,8 +52,14 @@ export function journalKey(mode: "console" | "go", credentialId: string): string
 
 /** Returns the journal entries VS Code last asked about. */
 export function readJournal(state: vscode.Memento): EntryJournal {
-  return state.get<EntryJournal>(ENTRY_JOURNAL_STATE_KEY) ?? {};
+  const journal = state.get<EntryJournal>(ENTRY_JOURNAL_STATE_KEY) ?? {};
+  return Object.fromEntries(Object.entries(journal).map(([key, record]) => [key, {
+    mode: record.mode, origin: record.origin, modelCount: record.modelCount, updatedAt: record.updatedAt,
+    ...(record.profile ? { profile: record.profile } : {}), ...(record.label ? { label: record.label } : {}),
+  }]));
 }
+
+const mutations = new WeakMap<vscode.Memento, Promise<void>>();
 
 /** Records or clears one entry in the journal; passes `undefined` to remove. */
 export async function updateJournalEntry(
@@ -65,10 +67,15 @@ export async function updateJournalEntry(
   key: string,
   record: EntryJournalRecord | undefined,
 ): Promise<void> {
-  const journal = { ...(await readJournal(state)) };
-  if (record === undefined) delete journal[key];
-  else journal[key] = record;
-  await state.update(ENTRY_JOURNAL_STATE_KEY, journal);
+  const previous = mutations.get(state) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(async () => {
+    const journal = { ...readJournal(state) };
+    if (record === undefined) delete journal[key];
+    else journal[key] = record;
+    await state.update(ENTRY_JOURNAL_STATE_KEY, journal);
+  });
+  mutations.set(state, current);
+  try { await current; } finally { if (mutations.get(state) === current) mutations.delete(state); }
 }
 
 export interface Reconciliation {
@@ -76,11 +83,6 @@ export interface Reconciliation {
   entriesWithoutCredentials: Array<{ key: string; record: EntryJournalRecord }>;
   /** Signed-in accounts no journal entry references. */
   accountsWithoutEntries: StoredAccount[];
-}
-
-/** The journal keys expected to back entries for one account. */
-function journalKeysForAccount(account: StoredAccount): string[] {
-  return [journalKey("console", `profile-${account.profile}`), journalKey("go", `profile-${account.profile}`)];
 }
 
 /**
@@ -97,7 +99,7 @@ export function reconcile(journal: EntryJournal, accounts: readonly StoredAccoun
     entriesWithoutCredentials.push({ key, record });
   }
   const accountsWithoutEntries = accounts.filter((account) => {
-    return !journalKeysForAccount(account).some((key) => journal[key] !== undefined);
+    return !Object.values(journal).some((record) => record.origin === "session" && record.profile === account.profile);
   });
   return { entriesWithoutCredentials, accountsWithoutEntries };
 }

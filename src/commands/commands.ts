@@ -399,7 +399,7 @@ async function describeJournal(state: vscode.Memento): Promise<string[]> {
   const journal = readJournal(state);
   if (!Object.keys(journal).length) return ["- Model-entry journal: empty (VS Code has not asked for entries yet)"];
   const rows = Object.entries(journal).map(([key, record]) => {
-    const details = [record.origin, record.profile ? `profile=${record.profile}` : undefined, record.label ? `label=${record.label}` : undefined, record.orgName ? `org=${record.orgName}` : undefined]
+    const details = [record.origin, record.profile ? `profile=${record.profile}` : undefined, record.label ? `label=${record.label}` : undefined]
       .filter(Boolean).join(", ");
     return `  - ${key}: ${details}, ${record.modelCount} models, last asked ${new Date(record.updatedAt).toLocaleString()}`;
   });

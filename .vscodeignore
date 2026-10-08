@@ -20,3 +20,4 @@ out/*.test.*
 *.vsix
 .DS_Store
 .env*
+test/**

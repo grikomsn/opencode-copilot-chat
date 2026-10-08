@@ -63,3 +63,38 @@ test("treats key-origin entries as current in all cases", () => {
   assert.deepEqual(entriesWithoutCredentials, []);
   assert.deepEqual(accountsWithoutEntries.map((account) => account.profile), ["default"]);
 });
+
+
+test("serializes concurrent updates, deletions, and recovery after a failed write", async () => {
+  const values = new Map<string, unknown>();
+  let fail = false;
+  const state = { get: <T>(key: string) => values.get(key) as T | undefined,
+    async update(key: string, value: unknown) {
+      await new Promise((resolve) => setImmediate(resolve));
+      if (fail) { fail = false; throw new Error("storage failed"); }
+      values.set(key, value);
+    } } as never;
+  await Promise.all([updateJournalEntry(state, "first", record()), updateJournalEntry(state, "second", record())]);
+  assert.deepEqual(Object.keys(readJournal(state)), ["first", "second"]);
+  await Promise.all([updateJournalEntry(state, "first", undefined), updateJournalEntry(state, "third", record())]);
+  assert.deepEqual(Object.keys(readJournal(state)), ["second", "third"]);
+  fail = true;
+  await assert.rejects(updateJournalEntry(state, "failed", record()), /storage failed/);
+  await updateJournalEntry(state, "recovered", record());
+  assert.equal(readJournal(state).failed, undefined);
+  assert.ok(readJournal(state).recovered);
+});
+
+test("reconciles actual session references rather than synthetic journal keys", () => {
+  const journal = { "renamed-entry": record({ profile: "work" }), "console:profile-default": record({ origin: "key" }) };
+  assert.deepEqual(reconcile(journal, [{ profile: "work", session: true }, { profile: "default", session: true }]).accountsWithoutEntries.map((account) => account.profile), ["default"]);
+});
+
+
+test("does not copy old account details when updating observation history", async () => {
+  const state = new Memento() as never;
+  await updateJournalEntry(state, "old", { ...record(), email: "synthetic@example.invalid", orgName: "Synthetic organization" } as EntryJournalRecord);
+  await updateJournalEntry(state, "new", record());
+  assert.equal("email" in readJournal(state).old, false);
+  assert.equal("orgName" in readJournal(state).old, false);
+});
