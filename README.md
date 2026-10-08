@@ -21,6 +21,7 @@ This native VS Code `LanguageModelChatProvider` registers Console and Go as sepa
 - Named accounts that serve both Console and Go from one device session
 - Credential-scoped live discovery, with six-hour persisted models.dev enrichment for Console and Go
 - Streaming text, reasoning, image inputs, and agent-mode tool calls
+- Thinking stays before the answer or tool calls, with parallel tool arguments and call IDs preserved across interleaved stream events.
 - Model-specific Thinking Effort and Qwen thinking-budget controls
 - Bounded gateway retries and context-aware token limits
 - Provider-entry-scoped inference-token tracking and secret-safe diagnostics
