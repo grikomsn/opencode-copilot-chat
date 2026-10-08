@@ -17,7 +17,8 @@ export class OpenCodeStreamParser {
   private buffer = "";
   private readonly tools = new Map<string, ToolCallEvent>();
   private readonly completedTools = new Set<string>();
-  private finishReason: string | undefined;
+  /** Final completion reason observed on the stream, exposed for end-of-stream validation. */
+  finishReason: string | undefined;
   private messageUsage: Record<string, unknown> = {};
   private terminalEventSeen = false;
   private textDeltaSeen = false;
@@ -47,7 +48,7 @@ export class OpenCodeStreamParser {
       if (event) events.push(event);
     }
     this.buffer = "";
-    const tools = this.flushTools();
+    const tools = this.flushTools(true);
     if (tools.length) events.push({ toolCalls: tools });
     return events;
   }
@@ -60,7 +61,7 @@ export class OpenCodeStreamParser {
     if (data === "[DONE]") {
       this.terminalEventSeen = true;
       this.finishReason = this.finishReason ?? "stop";
-      return { done: true, finishReason: this.finishReason, toolCalls: this.flushTools() };
+      return { done: true, finishReason: this.finishReason, toolCalls: this.flushTools(true) };
     }
     let json: Record<string, unknown>;
     try { json = JSON.parse(data) as Record<string, unknown>; } catch { return undefined; }
@@ -107,15 +108,32 @@ export class OpenCodeStreamParser {
       this.tools.set(id, tool);
       return undefined;
     }
-    if (type === "response.function_call_arguments.done" || type === "response.output_item.done") {
+    if (type === "response.function_call_arguments.done") {
+      // Parallel tool calls interleave deltas and done events; flushing only
+      // this tool guarantees a still-streaming sibling is neither emitted
+      // prematurely nor aborted with an incomplete-arguments error.
+      const id = string(json.call_id) ?? string(json.item_id) ?? string(json.output_index) ?? "0";
       const item = record(json.item) ?? json;
+      const tool = this.tools.get(id) ?? { id, name: "", arguments: "" };
+      const name = string(json.name) ?? string(item.name);
+      if (name) tool.name = name;
+      const args = string(json.arguments) ?? string(item.arguments);
+      if (args) tool.arguments = args;
+      this.tools.set(id, tool);
+      return this.emitSingleToolCall(tool.id);
+    }
+    if (type === "response.output_item.done") {
+      const item = record(json.item) ?? json;
+      // A completed message/text item must not flush sibling tool calls that
+      // are still accumulating undetruer parallel tool invocation.
+      const itemType = string(item.type);
+      if (itemType && itemType !== "function_call") return undefined;
       const id = string(item.call_id) ?? string(item.item_id) ?? string(item.id) ?? "0";
       const tool = this.tools.get(id) ?? { id, name: string(item.name) ?? "", arguments: "" };
       if (string(item.name)) tool.name = string(item.name)!;
       if (string(item.arguments)) tool.arguments = string(item.arguments)!;
       this.tools.set(id, tool);
-      const flushed = this.flushTools();
-      return flushed.length ? { toolCalls: flushed } : undefined;
+      return this.emitSingleToolCall(tool.id);
     }
     if (type === "response.completed" || type === "response.done") {
       this.terminalEventSeen = true;
@@ -168,7 +186,7 @@ export class OpenCodeStreamParser {
     }
     if (type === "message_stop") {
       this.terminalEventSeen = true;
-      return { done: true, finishReason: this.finishReason ?? "stop", toolCalls: this.flushTools(), ...(Object.keys(this.messageUsage).length ? { usage: this.messageUsage } : {}) };
+      return { done: true, finishReason: this.finishReason ?? "stop", toolCalls: this.flushTools(true), ...(Object.keys(this.messageUsage).length ? { usage: this.messageUsage } : {}) };
     }
     return undefined;
   }
@@ -196,15 +214,18 @@ export class OpenCodeStreamParser {
     for (const raw of value) {
       const item = record(raw);
       if (!item) continue;
-      const id = typeof item.index === "number" ? String(item.index) : String(this.tools.size);
-      const current = this.tools.get(id) ?? { id: string(item.id) ?? id, name: "", arguments: "" };
+      // Key by index when present, otherwise by the tool id: falling back to a
+      // positional counter fragments parallel tool calls whose later deltas
+      // arrive without an index.
+      const key = typeof item.index === "number" ? String(item.index) : string(item.id) ?? `call-${this.tools.size}`;
+      const current = this.tools.get(key) ?? { id: string(item.id) ?? key, name: "", arguments: "" };
       const fn = record(item.function);
       if (string(item.id)) current.id = string(item.id)!;
       const name = string(fn?.name);
       const argumentsDelta = string(fn?.arguments);
       if (name) current.name += name;
       if (argumentsDelta) current.arguments += argumentsDelta;
-      this.tools.set(id, current);
+      this.tools.set(key, current);
     }
   }
 
@@ -213,24 +234,86 @@ export class OpenCodeStreamParser {
     this.tools.set(id, { id, name: string(value.name) ?? "", arguments: string(value.arguments) ?? "" });
   }
 
-  private flushTools(): ToolCallEvent[] {
-    const values = [...new Set(this.tools.values())]
-      .filter((tool) => tool.name && !this.completedTools.has(tool.id))
-      .map(completeToolCall);
-    for (const tool of values) this.completedTools.add(tool.id);
-    this.tools.clear();
-    return values;
+  /**
+   * Emits accumulated tool calls. Unparseable arguments stay pending until a
+   * later flush unless `final`: mid-stream flushes (parallel tool calls where a
+   * sibling is still streaming) must neither throw nor emit malformed calls,
+   * while stream-end flushes surface genuine truncation loudly.
+   */
+  private flushTools(final = false): ToolCallEvent[] {
+    const events: ToolCallEvent[] = [];
+    for (const [key, tool] of [...this.tools]) {
+      if (this.completedTools.has(tool.id)) {
+        this.tools.delete(key);
+        continue;
+      }
+      if (!tool.name) {
+        if (final) this.tools.delete(key);
+        continue;
+      }
+      const args = tool.arguments.trim() || "{}";
+      if (isParseableJson(args)) {
+        this.tools.delete(key);
+        this.completedTools.add(tool.id);
+        events.push({ ...tool, arguments: args });
+        continue;
+      }
+      if (final) {
+        this.tools.delete(key);
+        throw new Error(`OpenCode stream ended with incomplete arguments for tool ${tool.name}`);
+      }
+    }
+    return events;
+  }
+
+  /** Emits exactly one tool call identified by its id, leaving siblings untouched. */
+  private emitSingleToolCall(id: string): StreamEvent | undefined {
+    if (this.completedTools.has(id)) return undefined;
+    for (const [key, tool] of [...this.tools]) {
+      if (tool.id !== id || !tool.name) continue;
+      const args = tool.arguments.trim() || "{}";
+      if (!isParseableJson(args)) return undefined;
+      this.tools.delete(key);
+      this.completedTools.add(tool.id);
+      return { toolCalls: [{ ...tool, arguments: args }] };
+    }
+    return undefined;
   }
 }
 
-function completeToolCall(tool: ToolCallEvent): ToolCallEvent {
-  const args = tool.arguments.trim() || "{}";
-  try {
-    JSON.parse(args);
-  } catch {
-    throw new Error(`OpenCode stream ended with incomplete arguments for tool ${tool.name}`);
+/** Finish reasons that mean the response was cut short by the model's output cap. */
+const OUTPUT_LIMIT_REASONS = new Set(["length", "max_tokens", "max_output_tokens"]);
+/** Finish reasons that mean the response was cut short by a safety or refusal mechanism. */
+const CONTENT_FILTER_REASONS = new Set(["content_filter", "safety", "recitation", "blocklist", "prohibited_content", "spii", "refusal"]);
+
+/**
+ * Surfaces truncated or filtered streams instead of letting Copilot Chat end the
+ * turn silently. Mirrors the sibling providers: a stream with no completion
+ * reason ended before the model finished, an output-limit reason means the
+ * response was cut off at the cap, and a filter reason means the model refused.
+ * Unknown reasons (end_turn, tool_use, STOP, pause_turn, …) are dialect-specific
+ * success codes and pass.
+ */
+export function validateStreamCompletion(modelId: string, finishReason: string | undefined): void {
+  const reason = finishReason?.toLowerCase();
+  if (reason && OUTPUT_LIMIT_REASONS.has(reason)) {
+    throw new Error(`OpenCode model ${modelId} reached its output token limit before completing`);
   }
-  return { ...tool, arguments: args };
+  if (reason && CONTENT_FILTER_REASONS.has(reason)) {
+    throw new Error(`OpenCode stopped the response for ${modelId} because of its content filter`);
+  }
+  if (!reason) {
+    throw new Error(`OpenCode response stream ended before ${modelId} reported a completion reason`);
+  }
+}
+
+function isParseableJson(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function responseText(response: Record<string, unknown>): string | undefined {

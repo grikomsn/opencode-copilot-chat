@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenCodeStreamParser } from "./sse";
+import { OpenCodeStreamParser, validateStreamCompletion } from "./sse";
 
 test("reassembles fragmented chat text and tool arguments", () => {
   const parser = new OpenCodeStreamParser("chat-completions");
@@ -82,4 +82,83 @@ test("parses Google text, reasoning, tool calls, and usage", () => {
     usage: { promptTokenCount: 2 },
     finishReason: "STOP",
   }]);
+});
+
+test("accepts dialect-specific success finish reasons", () => {
+  for (const reason of ["stop", "tool_calls", "function_call", "end_turn", "tool_use", "stop_sequence", "STOP", "pause_turn"]) {
+    assert.doesNotThrow(() => validateStreamCompletion("zen-x", reason));
+  }
+});
+
+test("surfaces output-limit finish reasons instead of a silent truncation", () => {
+  for (const reason of ["length", "max_tokens", "max_output_tokens", "MAX_TOKENS"]) {
+    assert.throws(() => validateStreamCompletion("zen-x", reason), /output token limit/);
+  }
+});
+
+test("surfaces content-filter finish reasons", () => {
+  for (const reason of ["content_filter", "SAFETY", "recitation", "blocklist", "prohibited_content", "spii", "refusal"]) {
+    assert.throws(() => validateStreamCompletion("zen-x", reason), /content filter/);
+  }
+});
+
+test("flags a truncated stream that never reported a completion reason", () => {
+  assert.throws(() => validateStreamCompletion("zen-x", undefined), /ended before zen-x reported a completion reason/);
+});
+
+test("detects a chat stream that ends after partial text with no finish reason", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  parser.push('data: {"choices":[{"delta":{"content":"partial answer"}}]}\n\n');
+  parser.finish();
+  assert.equal(parser.completed, false);
+  assert.throws(() => validateStreamCompletion("zen-x", parser.finishReason), /ended before zen-x reported a completion reason/);
+});
+
+test("emits parallel Responses tool calls individually as each completes", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  parser.push('event: response.output_item.added\ndata: {"item":{"type":"function_call","call_id":"call-a","name":"lookup"}}\n\n');
+  parser.push('event: response.output_item.added\ndata: {"item":{"type":"function_call","call_id":"call-b","name":"weather"}}\n\n');
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-a","delta":"{\\"q\\":\\"x\\"}"}\n\n');
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-b","delta":"{\\"city\\":\\"Par"}\n\n');
+  // call-a finishes while call-b is mid-accumulation: this must emit only
+  // call-a instead of aborting the stream on call-b's incomplete arguments.
+  const doneA = parser.push('event: response.function_call_arguments.done\ndata: {"call_id":"call-a","arguments":"{\\"q\\":\\"x\\"}"}\n\n');
+  assert.deepEqual(doneA, [{ toolCalls: [{ id: "call-a", name: "lookup", arguments: '{"q":"x"}' }] }]);
+  const doneB = parser.push('event: response.function_call_arguments.done\ndata: {"call_id":"call-b","arguments":"{\\"city\\":\\"Paris\\"}"}\n\n');
+  assert.deepEqual(doneB, [{ toolCalls: [{ id: "call-b", name: "weather", arguments: '{"city":"Paris"}' }] }]);
+  const completed = parser.push('event: response.completed\ndata: {"response":{"status":"completed","usage":{"input_tokens":2}}}\n\n');
+  assert.equal(completed[0]?.toolCalls, undefined);
+  assert.equal(parser.completed, true);
+});
+
+test("a completed message item does not flush still-streaming sibling tool calls", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  parser.push('event: response.output_item.added\ndata: {"item":{"type":"function_call","call_id":"call-a","name":"lookup"}}\n\n');
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-a","delta":"{\\"q\\":\\"x\\"}"}\n\n');
+  const messageDone = parser.push('event: response.output_item.done\ndata: {"item":{"type":"message","id":"msg-1","content":[{"type":"output_text","text":"hi"}]}}\n\n');
+  assert.deepEqual(messageDone, []);
+  const completed = parser.push('event: response.completed\ndata: {"response":{"status":"completed"}}\n\n');
+  assert.deepEqual(completed[0]?.toolCalls, [{ id: "call-a", name: "lookup", arguments: '{"q":"x"}' }]);
+});
+
+test("keeps incomplete parallel siblings pending instead of aborting mid-stream", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  parser.push('event: response.output_item.added\ndata: {"item":{"type":"function_call","call_id":"call-a","name":"lookup"}}\n\n');
+  parser.push('event: response.output_item.added\ndata: {"item":{"type":"function_call","call_id":"call-b","name":"weather"}}\n\n');
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-a","delta":"{\\"q\\":\\"x\\"}"}\n\n');
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-b","delta":"{\\"city\\":\\"Par"}\n\n');
+  // Invalid sibling arguments at call-a's done event must not throw.
+  const doneA = parser.push('event: response.function_call_arguments.done\ndata: {"call_id":"call-a","arguments":"{\\"q\\":\\"x\\"}"}\n\n');
+  assert.deepEqual(doneA, [{ toolCalls: [{ id: "call-a", name: "lookup", arguments: '{"q":"x"}' }] }]);
+  parser.push('event: response.function_call_arguments.delta\ndata: {"call_id":"call-b","delta":"is\\"}"}\n\n');
+  const doneB = parser.push('event: response.function_call_arguments.done\ndata: {"call_id":"call-b","arguments":"{\\"city\\":\\"Paris\\"}"}\n\n');
+  assert.deepEqual(doneB, [{ toolCalls: [{ id: "call-b", name: "weather", arguments: '{"city":"Paris"}' }] }]);
+});
+
+test("accumulates chat tool deltas under the tool id when the gateway omits index", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  parser.push('data: {"choices":[{"delta":{"tool_calls":[{"id":"call-a","function":{"name":"lookup","arguments":"{\\"q\\":"}}]}}]}\n\n');
+  parser.push('data: {"choices":[{"delta":{"tool_calls":[{"id":"call-a","function":{"arguments":"\\"x\\"}"}}]}}]}\n\n');
+  const events = parser.push('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n');
+  assert.deepEqual(events, [{ finishReason: "tool_calls", toolCalls: [{ id: "call-a", name: "lookup", arguments: '{"q":"x"}' }] }]);
 });
