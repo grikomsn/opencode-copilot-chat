@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { registerInlineCompletions } from "./autocomplete";
-import { DEFAULT_CONSOLE_PROFILE } from "./auth/auth";
 import { INLINE_SUGGESTIONS_ACCOUNT_SETTING } from "./autocomplete/config";
-import { OpenCodeAuth } from "./auth/auth";
+import { DEFAULT_CONSOLE_PROFILE, OpenCodeAuth } from "./auth/auth";
 import { registerCommands } from "./commands/commands";
 import { OpenCodeProvider } from "./provider";
 import { ModelCatalog } from "./models/catalog";
@@ -41,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
       () => new ModelCatalog(fetch, context.globalState, metadata),
       initialUsage,
       definition.mode === "console" ? activeConsoleProfile : undefined,
+      context.globalState,
     ),
   ])) as Record<keyof typeof OPENCODE_PROVIDER_DEFINITIONS, OpenCodeProvider>;
   const usageStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
@@ -52,6 +52,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     output,
     usageStatus,
+    // Credential changes re-provision every entry: VS Code re-asks each
+    // model entry for information, which re-derives catalogs from the
+    // gateway with the updated credential.
+    auth.onDidChange(() => {
+      for (const provider of Object.values(providers)) provider.fireDidChange();
+    }),
     providers.console.onDidChangeActiveConsoleProfile((profile) => {
       void context.globalState.update(ACTIVE_CONSOLE_PROFILE_STATE_KEY, profile);
     }),
@@ -78,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     ...Object.values(OPENCODE_PROVIDER_DEFINITIONS).map((definition) =>
       vscode.lm.registerLanguageModelChatProvider(definition.vendor, providers[definition.mode])),
-    ...registerCommands(auth, providers, output, () => activeUsageProvider),
+    ...registerCommands(auth, providers, output, () => activeUsageProvider, context.globalState),
     registerInlineCompletions(context, {
       resolveApiKey: async (gateway) => {
         const account = vscode.workspace.getConfiguration("opencode").get<string>(INLINE_SUGGESTIONS_ACCOUNT_SETTING, DEFAULT_CONSOLE_PROFILE);

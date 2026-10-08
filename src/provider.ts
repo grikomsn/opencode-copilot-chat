@@ -16,6 +16,7 @@ import { OpenCodeStreamParser, validateStreamCompletion } from "./transport/sse"
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
 import { modelPricingFields, openCodeModelCost } from "./models/pricing";
 import { apiKeyCredentialId, activeConsoleProfileFromState, consoleProfileFromConfiguration, entryNameFromConfiguration, qualifiedModelId, stableEntryCredentialId, type CredentialOrigin } from "./provider-profile";
+import { journalKey, type EntryJournalRecord, updateJournalEntry } from "./provider-journal";
 
 export interface OpenCodeModelInformation extends vscode.LanguageModelChatInformation {
   readonly rawModelId: string;
@@ -49,6 +50,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     private readonly catalogFactory: () => ModelCatalog = () => new ModelCatalog(),
     initialUsage: Readonly<Record<string, OpenCodeUsageSnapshot>> = {},
     initialActiveConsoleProfile: unknown = DEFAULT_CONSOLE_PROFILE,
+    private readonly journal?: vscode.Memento,
   ) {
     for (const [scope, usage] of Object.entries(initialUsage)) {
       if (scope.startsWith(`${mode}:`)) this.usageByScope.set(scope, usage);
@@ -107,7 +109,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       return [];
     }
     if (!entry) return [];
-    const { credential, credentialId, profile, origin } = entry;
+    const { credential, credentialId, profile, origin, label } = entry;
     this.credentials.set(credentialId, credential);
     const catalog = this.catalogFor(credentialId);
     const maxAge = Math.max(1, vscode.workspace.getConfiguration("opencode").get<number>("catalogCacheMinutes", 5)) * 60_000;
@@ -118,7 +120,9 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       catch (error) { this.output.appendLine(`[models] ${messageOf(error)}`); }
       finally { listener.dispose(); }
     }
-    return catalog.list(mode).map((model) => this.toInformation(model, mode, credentialId, origin, profile));
+    const models = catalog.list(mode);
+    await this.recordJournalEntry(credentialId, credential, { profile, label, modelCount: models.length });
+    return models.map((model) => this.toInformation(model, mode, credentialId, origin, profile));
   }
 
   async provideLanguageModelChatResponse(
@@ -275,6 +279,26 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     return Math.max(0, Math.ceil(text.length / 4));
   }
 
+  /** Records which model entries VS Code last asked about, for reconciliation diagnostics. */
+  private async recordJournalEntry(
+    credentialId: string,
+    credential: Credential,
+    entry: { profile?: string; label?: string; modelCount: number },
+  ): Promise<void> {
+    if (!this.journal) return;
+    const record: EntryJournalRecord = {
+      mode: this.mode,
+      origin: credential.origin,
+      modelCount: entry.modelCount,
+      updatedAt: Date.now(),
+      ...(entry.profile ? { profile: entry.profile } : {}),
+      ...(entry.label ? { label: entry.label } : {}),
+      ...(credential.email ? { email: credential.email } : {}),
+      ...(credential.orgName ? { orgName: credential.orgName } : {}),
+    };
+    await updateJournalEntry(this.journal, journalKey(this.mode, credentialId), record);
+  }
+
   private toInformation(
     model: OpenCodeModel,
     mode: OpenCodeMode,
@@ -323,6 +347,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     credentialId: string;
     origin: CredentialOrigin;
     profile?: string;
+    label?: string;
   } | undefined> {
     // Service-account API key entries take precedence over account
     // (device-code) profiles, mirroring the upstream key method's precedence.
@@ -334,6 +359,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         credential: { mode: this.mode, token: apiKey, origin: "key" },
         credentialId: label ? stableEntryCredentialId(label) : apiKeyCredentialId(apiKey, legacy),
         origin: "key",
+        ...(label ? { label } : {}),
       };
     }
     const profile = consoleProfileFromConfiguration(configuration);

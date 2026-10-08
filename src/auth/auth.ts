@@ -4,6 +4,7 @@ import { DEFAULT_CONSOLE_SERVER, OPENCODE_CLIENT_ID, resolveConsoleVerificationU
 const API_KEYS_KEY = "opencode.apiKeys.v1";
 const ACCOUNT_KEYS_KEY = "opencode.accountKeys.v1";
 const CONSOLE_SESSION_KEY = "opencode.consoleSession.v1";
+/** Stale index from versions that tracked device profiles in a separate blob; deleted during migration. */
 const CONSOLE_PROFILES_KEY = "opencode.consoleProfiles.v1";
 export const DEFAULT_CONSOLE_PROFILE = "default";
 
@@ -65,18 +66,31 @@ export interface Credential {
   server?: string;
   orgId?: string;
   orgName?: string;
+  /** Account email for device-flow session credentials; service keys have no account lookup. */
+  email?: string;
 }
 
 type Fetcher = typeof fetch;
 type Sleeper = (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+type ChangeListener = () => void;
 
 export class OpenCodeAuth {
   private readonly refreshPromises = new Map<string, { identity: string; promise: Promise<ConsoleSession> }>();
   private readonly sessionMutations = new Map<string, Promise<void>>();
-  private profileIndexMutation: Promise<void> = Promise.resolve();
   private accountKeyMutation: Promise<void> = Promise.resolve();
   private accountKeyMigration?: Promise<void>;
   private readonly profileGenerations = new Map<string, number>();
+  private readonly changeListeners = new Set<ChangeListener>();
+
+  /** Fires after a device session, organization selection, or service key changes. */
+  onDidChange(listener: ChangeListener): { dispose(): void } {
+    this.changeListeners.add(listener);
+    return { dispose: () => { this.changeListeners.delete(listener); } };
+  }
+
+  private notifyChange(): void {
+    for (const listener of this.changeListeners) listener();
+  }
 
   constructor(
     private readonly secrets: vscode.SecretStorage,
@@ -116,7 +130,7 @@ export class OpenCodeAuth {
   /** Accounts that hold at least one service-account key. */
   async listKeyAccounts(): Promise<string[]> {
     await this.migrateAccountKeys();
-    return Object.keys(await this.readAccountKeys()).sort();
+    return Object.keys(await this.readAccountKeys()).sort((left, right) => left.localeCompare(right));
   }
 
   private async readAccountKeys(): Promise<Record<string, ApiKeys>> {
@@ -146,10 +160,14 @@ export class OpenCodeAuth {
     const current = previous.catch(() => undefined).then(async () => {
       const normalized = normalizeConsoleProfile(account);
       const accounts = await this.readAccountKeys();
+      const before = JSON.stringify(accounts[normalized] ?? {});
       const keys: ApiKeys = { ...accounts[normalized] };
       operation(keys);
+      const after = JSON.stringify(keys);
+      if (before === after) return;
       accounts[normalized] = keys;
       await this.secrets.store(ACCOUNT_KEYS_KEY, JSON.stringify(accounts));
+      this.notifyChange();
     });
     this.accountKeyMutation = current;
     try { await current; } finally {
@@ -160,13 +178,19 @@ export class OpenCodeAuth {
   /**
    * Seeds per-account keys from the single legacy blob exactly once. The
    * legacy blob stays in place as a downgrade cache; it is only re-read while
-   * the account store is absent.
+   * the account store is absent. The migration also deletes the stale
+   * profile index left by versions that maintained one alongside sessions;
+   * account listings are derived from session keys instead.
    */
   private migrateAccountKeys(): Promise<void> {
     this.accountKeyMigration ??= (async () => {
-      if (await this.secrets.get(ACCOUNT_KEYS_KEY)) return;
+      if (await this.secrets.get(ACCOUNT_KEYS_KEY)) {
+        await this.secrets.delete(CONSOLE_PROFILES_KEY);
+        return;
+      }
       const keys = await this.readLegacyApiKeys();
       await this.secrets.store(ACCOUNT_KEYS_KEY, JSON.stringify({ [DEFAULT_CONSOLE_PROFILE]: keys }));
+      await this.secrets.delete(CONSOLE_PROFILES_KEY);
     })();
     return this.accountKeyMigration;
   }
@@ -228,6 +252,7 @@ export class OpenCodeAuth {
       server: current.server,
       orgId: current.orgId,
       orgName: current.orgName,
+      email: current.email,
     };
   }
 
@@ -312,6 +337,7 @@ export class OpenCodeAuth {
         ...(normalizedOrgs[0] ? { orgId: normalizedOrgs[0].id, orgName: normalizedOrgs[0].name } : {}),
       };
       await this.saveConsoleSession(session, normalized, generation);
+      this.notifyChange();
       return session;
     }
     throw new Error("OpenCode Console device code expired; start sign-in again");
@@ -333,6 +359,7 @@ export class OpenCodeAuth {
         throw new Error(`OpenCode Console operation for profile “${normalized}” was superseded`);
       }
     });
+    this.notifyChange();
   }
 
   async signOut(mode: OpenCodeMode, profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
@@ -346,31 +373,45 @@ export class OpenCodeAuth {
       this.invalidateProfile(normalized);
       await this.mutateSession(normalized, async () => {
         await this.secrets.delete(consoleSessionKey(normalized));
-        await this.mutateConsoleProfileIndex((profiles) => profiles.delete(normalized));
       });
     }
     await this.clearApiKey(mode);
+    this.notifyChange();
   }
 
+  /**
+   * Signed-in device accounts, derived from the stored sessions themselves.
+   * There is no separate profile index to keep in sync; the default account
+   * is included whenever its session exists.
+   */
   async listConsoleProfiles(): Promise<string[]> {
-    let candidates: string[] = [];
+    // Wait for migration so the stale profile index is deleted before
+    // sessions are listed; the listing is derived from stored sessions
+    // regardless of any leftover index.
+    await this.migrateAccountKeys();
+    let keys: string[] = [];
     try {
-      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
-      if (Array.isArray(parsed)) candidates = parsed.filter((value): value is string => typeof value === "string");
+      keys = await this.secrets.keys();
     } catch {
-      // A corrupt index is rebuilt from the legacy default session.
+      return [];
     }
-    candidates.push(DEFAULT_CONSOLE_PROFILE);
     const profiles: string[] = [];
-    for (const candidate of candidates) {
+    const candidates = keys.flatMap((key) => {
+      if (!key.startsWith(CONSOLE_SESSION_KEY)) return [];
+      return [key === CONSOLE_SESSION_KEY ? DEFAULT_CONSOLE_PROFILE : key.slice(CONSOLE_SESSION_KEY.length + 1)];
+    });
+    const sessions = await Promise.all(candidates.map(async (candidate) => {
       try {
         const profile = normalizeConsoleProfile(candidate);
-        if (!profiles.includes(profile) && await this.getConsoleSession(profile)) profiles.push(profile);
+        return (await this.getConsoleSession(profile)) ? profile : undefined;
       } catch {
-        // Invalid index entries are ignored.
+        // Unrelated keys with the same prefix are ignored.
       }
+    }));
+    for (const profile of sessions) {
+      if (profile && !profiles.includes(profile)) profiles.push(profile);
     }
-    return profiles.sort();
+    return profiles.sort((left, right) => left.localeCompare(right));
   }
 
   private async refreshConsoleSession(
@@ -431,18 +472,6 @@ export class OpenCodeAuth {
 
   private async storeConsoleSession(session: ConsoleSession, profile: string): Promise<void> {
     await this.secrets.store(consoleSessionKey(profile), JSON.stringify(session));
-    await this.mutateConsoleProfileIndex((profiles) => { profiles.add(profile); });
-  }
-
-  private async readConsoleProfileIndex(): Promise<Set<string>> {
-    try {
-      const parsed = JSON.parse(await this.secrets.get(CONSOLE_PROFILES_KEY) ?? "[]") as unknown;
-      return new Set(Array.isArray(parsed) ? parsed.flatMap((value) => {
-        try { return typeof value === "string" ? [normalizeConsoleProfile(value)] : []; } catch { return []; }
-      }) : []);
-    } catch {
-      return new Set<string>();
-    }
   }
 
   private async mutateSession(profile: string, operation: () => Promise<void>): Promise<void> {
@@ -452,16 +481,6 @@ export class OpenCodeAuth {
     try { await current; } finally {
       if (this.sessionMutations.get(profile) === current) this.sessionMutations.delete(profile);
     }
-  }
-
-  private async mutateConsoleProfileIndex(operation: (profiles: Set<string>) => void): Promise<void> {
-    const current = this.profileIndexMutation.catch(() => undefined).then(async () => {
-      const profiles = await this.readConsoleProfileIndex();
-      operation(profiles);
-      await this.secrets.store(CONSOLE_PROFILES_KEY, JSON.stringify([...profiles].sort()));
-    });
-    this.profileIndexMutation = current;
-    await current;
   }
 
   private profileGeneration(profile: string): number {

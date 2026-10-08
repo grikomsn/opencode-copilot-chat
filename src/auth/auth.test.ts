@@ -16,6 +16,17 @@ class Secrets {
     this.values.set(key, value);
   }
   async delete(key: string): Promise<void> { this.values.delete(key); }
+  async keys(): Promise<string[]> { return [...this.values.keys()]; }
+}
+
+interface AuthChangeSpy {
+  count(): number;
+}
+
+function trackChanges(auth: OpenCodeAuth): AuthChangeSpy {
+  let count = 0;
+  auth.onDidChange(() => { count += 1; });
+  return { count: () => count };
 }
 
 test("opens Console device verification at opencode.ai/console/device", async () => {
@@ -65,6 +76,42 @@ test("seeds per-account keys from the legacy blob exactly once", async () => {
   assert.equal(await secrets.get("opencode.apiKeys.v1"), JSON.stringify({ console: "console-key", go: "go-key" }));
   const reseeded = new OpenCodeAuth(secrets as never);
   assert.deepEqual(await reseeded.getAccountKeys(), { console: "console-key" });
+});
+
+test("lists device accounts from stored sessions without a profile index", async () => {
+  const secrets = new Secrets();
+  const session = (accessToken: string) => JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken, refreshToken: "refresh",
+    expiresAt: Date.now() + 3600_000, accountId: accessToken, email: `${accessToken}@example.com`, orgs: [],
+  });
+  await secrets.store("opencode.consoleSession.v1.work", session("work"));
+  await secrets.store("opencode.consoleSession.v1", session("default"));
+  // A stale index left by older versions is ignored and cleaned up on load.
+  await secrets.store("opencode.consoleProfiles.v1", JSON.stringify(["ghost"]));
+  const auth = new OpenCodeAuth(secrets as never);
+  assert.deepEqual(await auth.listConsoleProfiles(), ["default", "work"]);
+  assert.equal(await secrets.get("opencode.consoleProfiles.v1"), undefined);
+});
+
+
+test("notifies change listeners for key, session, and sign-out mutations", async () => {
+  const secrets = new Secrets();
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+    if (url.endsWith("/api/user")) return Response.json({ id: "work", email: "work@example.com" });
+    return Response.json([]);
+  };
+  const auth = new OpenCodeAuth(secrets as never, fetcher, () => 1_000, async () => undefined);
+  const changes = trackChanges(auth);
+  await auth.setAccountKey("work", "go", "go-key");
+  await auth.clearAccountKey("work", "go");
+  const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
+  await auth.completeDeviceSignIn(device, undefined, "work");
+  await auth.signOut("console", "work");
+  // Two key mutations, one sign-in, one sign-out; sign-out's key clear is a
+  // no-op for the go slot but the session delete still counts.
+  assert.equal(changes.count(), 4);
 });
 
 test("stores service keys per account and per gateway", async () => {

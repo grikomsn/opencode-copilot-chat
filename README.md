@@ -32,7 +32,7 @@ This native VS Code `LanguageModelChatProvider` registers Console and Go as sepa
 3. For Console or Go, open **Manage Language Models**, choose **Add Models**, select the provider, name the entry, and paste its service-account API key. Both Console and Go entries can instead reference an OpenCode account by profile ID: Console may use a device-code sign-in, and Go accepts either a device-code profile or an account-scoped Go key.
 4. For device-code sign-in, run **OpenCode: Add Console Account**, choose a profile ID, then add a Console (or Go) entry in **Manage Language Models** with the same profile ID and no API key.
 5. To keep a service-account key on a named account, run **OpenCode: Manage Connection → Add service-account key to an OpenCode account**, then add an entry with that profile ID. Optional entry labels keep model IDs stable when a key is rotated.
-6. Repeat any flow for another account or key — for example Console on a personal account and Go on a work subscription — then enable the models you want in Copilot Chat.
+6. Repeat any flow for another account or key — for example Console on a personal account and Go on a work subscription — then enable the models you want in Copilot Chat. **Review entries and accounts** in the Manage Connection menu keeps the two sides in step.
 
 Marketplace installations receive updates through VS Code. Manual VSIX installations can be updated by installing the newest release asset.
 
