@@ -78,7 +78,7 @@ test("parses Google text, reasoning, tool calls, and usage", () => {
   assert.deepEqual(parser.push('data: {"candidates":[{"content":{"parts":[{"text":"why","thought":true},{"text":"hello"},{"functionCall":{"name":"lookup","args":{"id":1}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2}}\n\n'), [{
     text: "hello",
     reasoning: "why",
-    toolCalls: [{ id: "google-tool-2", name: "lookup", arguments: '{"id":1}' }],
+    toolCalls: [{ id: "", name: "lookup", arguments: '{"id":1}' }],
     usage: { promptTokenCount: 2 },
     finishReason: "STOP",
   }]);
@@ -161,4 +161,72 @@ test("accumulates chat tool deltas under the tool id when the gateway omits inde
   parser.push('data: {"choices":[{"delta":{"tool_calls":[{"id":"call-a","function":{"arguments":"\\"x\\"}"}}]}}]}\n\n');
   const events = parser.push('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n');
   assert.deepEqual(events, [{ finishReason: "tool_calls", toolCalls: [{ id: "call-a", name: "lookup", arguments: '{"q":"x"}' }] }]);
+});
+
+function responseEvent(parser: OpenCodeStreamParser, type: string, payload: Record<string, unknown>): ReturnType<OpenCodeStreamParser["push"]> {
+  return parser.push(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+test("keeps parallel chat calls intact when later deltas omit their indexes", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  const chat = (calls: Record<string, unknown>[]) => parser.push(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: calls } }] })}\n\n`);
+  chat([
+    { index: 0, id: "call-a", function: { name: "read", arguments: '{"path":' } },
+    { index: 1, id: "call-b", function: { name: "read", arguments: '{"path":' } },
+  ]);
+  chat([{ id: "call-b", function: { arguments: '"b"}' } }]);
+  chat([{ id: "call-a", function: { arguments: '"a"' } }]);
+  chat([{ index: 0, function: { arguments: "}" } }]);
+  assert.deepEqual(parser.push('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n')[0].toolCalls, [
+    { id: "call-a", name: "read", arguments: '{"path":"a"}' },
+    { id: "call-b", name: "read", arguments: '{"path":"b"}' },
+  ]);
+  assert.deepEqual(parser.finish(), []);
+});
+
+test("joins parallel Responses item IDs to the call IDs required for tool results", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  for (const [index, suffix] of ["a", "b"].entries()) {
+    responseEvent(parser, "response.output_item.added", { output_index: index, item: {
+      type: "function_call", id: `fc-${suffix}`, call_id: `call-${suffix}`, name: "read", arguments: "",
+    } });
+  }
+  responseEvent(parser, "response.function_call_arguments.delta", { item_id: "fc-a", output_index: 0, delta: '{"path":"a"}' });
+  responseEvent(parser, "response.function_call_arguments.delta", { item_id: "fc-b", output_index: 1, delta: '{"path":' });
+  assert.deepEqual(responseEvent(parser, "response.function_call_arguments.done", { item_id: "fc-a", output_index: 0, arguments: '{"path":"a"}' }), [
+    { toolCalls: [{ id: "call-a", name: "read", arguments: '{"path":"a"}' }] },
+  ]);
+  responseEvent(parser, "response.output_item.done", { output_index: 0, item: {
+    type: "function_call", id: "fc-a", call_id: "call-a", name: "read", arguments: '{"path":"a"}',
+  } });
+  assert.deepEqual(responseEvent(parser, "response.function_call_arguments.done", { item_id: "fc-a", name: "read", arguments: '{"path":"a"}' }), []);
+  assert.deepEqual(responseEvent(parser, "response.function_call_arguments.delta", { item_id: "fc-a", name: "read", delta: '{"path":"a"}' }), []);
+  responseEvent(parser, "response.function_call_arguments.delta", { item_id: "fc-b", output_index: 1, delta: '"b"}' });
+  assert.deepEqual(responseEvent(parser, "response.function_call_arguments.done", { item_id: "fc-b", output_index: 1, arguments: '{"path":"b"}' }), [
+    { toolCalls: [{ id: "call-b", name: "read", arguments: '{"path":"b"}' }] },
+  ]);
+  assert.deepEqual(responseEvent(parser, "response.completed", { response: { status: "completed" } }), [{ finishReason: "stop", done: true }]);
+  assert.deepEqual(parser.finish(), []);
+});
+
+test("uses numeric output indexes to route Responses deltas when IDs are omitted", () => {
+  const parser = new OpenCodeStreamParser("responses");
+  for (const [index, suffix] of ["a", "b"].entries()) {
+    responseEvent(parser, "response.output_item.added", { output_index: index, item: {
+      type: "function_call", id: `fc-${suffix}`, call_id: `call-${suffix}`, name: "read",
+    } });
+  }
+  responseEvent(parser, "response.function_call_arguments.delta", { output_index: 1, delta: '{"path":"b"}' });
+  responseEvent(parser, "response.function_call_arguments.delta", { output_index: 0, delta: '{"path":"a"}' });
+  assert.deepEqual(responseEvent(parser, "response.completed", { response: { status: "completed" } })[0].toolCalls, [
+    { id: "call-a", name: "read", arguments: '{"path":"a"}' },
+    { id: "call-b", name: "read", arguments: '{"path":"b"}' },
+  ]);
+});
+
+test("recognizes a final completion block without a trailing SSE separator", () => {
+  const parser = new OpenCodeStreamParser("chat-completions");
+  assert.deepEqual(parser.push('data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}'), []);
+  assert.deepEqual(parser.finish(), [{ text: "answer", finishReason: "stop" }]);
+  assert.doesNotThrow(() => validateStreamCompletion("model", parser.finishReason));
 });

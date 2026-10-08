@@ -9,7 +9,7 @@ import { trimChatHistoryToFit, trimResponsesInputToFit } from "./provider/histor
 import { convertChatMessages, convertResponsesMessages } from "./provider/messages";
 import { buildRequestBody, mergeRequestBody } from "./provider/request";
 import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./provider/retry";
-import { reportStreamEvent } from "./provider/response";
+import { StreamResponseReporter } from "./provider/response";
 import { buildFunctionTools, buildResponsesTools, originalToolName } from "./tools/client-tools";
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser, validateStreamCompletion } from "./transport/sse";
@@ -238,22 +238,33 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
           const parser = new OpenCodeStreamParser(model.endpoint);
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
-          while (true) {
-            const part = await reader.read();
-            if (part.done) break;
-            resetIdle();
-            for (const event of parser.push(decoder.decode(part.value, { stream: true }))) {
+          const reporter = new StreamResponseReporter(progress, model.rawModelId, vscode, requestId, (name) => originalToolName(name, options.tools));
+          try {
+            while (true) {
+              const part = await reader.read();
+              if (part.done) break;
+              resetIdle();
+              for (const event of parser.push(decoder.decode(part.value, { stream: true }))) {
+                sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
+                const usage = reporter.report(event);
+                if (usage) this.setUsage(usage, information.credentialId);
+              }
+              if (token.isCancellationRequested) return;
+            }
+            for (const event of parser.push(decoder.decode())) {
               sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
-              const usage = reportStreamEvent(event, progress, model.rawModelId, (name) => originalToolName(name, options.tools));
+              const usage = reporter.report(event);
               if (usage) this.setUsage(usage, information.credentialId);
             }
-            if (token.isCancellationRequested) return;
-          }
-          validateStreamCompletion(model.rawModelId, parser.finishReason);
-          for (const event of parser.finish()) {
-            sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
-            const usage = reportStreamEvent(event, progress, model.rawModelId, (name) => originalToolName(name, options.tools));
-            if (usage) this.setUsage(usage, information.credentialId);
+            for (const event of parser.finish()) {
+              sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
+              const usage = reporter.report(event);
+              if (usage) this.setUsage(usage, information.credentialId);
+            }
+            validateStreamCompletion(model.rawModelId, parser.finishReason);
+          } finally {
+            if (!token.isCancellationRequested) reporter.finish();
+            reader.releaseLock();
           }
           if (!sawOutput) throw new Error(`OpenCode returned no content for ${model.rawModelId}`);
           if (!parser.completed) this.output.appendLine(`[response] model=${model.rawModelId} delivered content without a terminal stream event`);

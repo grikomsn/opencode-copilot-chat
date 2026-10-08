@@ -17,6 +17,9 @@ export class OpenCodeStreamParser {
   private buffer = "";
   private readonly tools = new Map<string, ToolCallEvent>();
   private readonly completedTools = new Set<string>();
+  private readonly chatToolKeys = new Map<string, string>();
+  private readonly responseToolKeys = new Map<string, string>();
+  private readonly responseCallIds = new Map<string, string>();
   /** Final completion reason observed on the stream, exposed for end-of-stream validation. */
   finishReason: string | undefined;
   private messageUsage: Record<string, unknown> = {};
@@ -97,42 +100,45 @@ export class OpenCodeStreamParser {
     if (type === "response.reasoning_text.delta" || type === "response.reasoning_summary_text.delta") return string(json.delta) ? { reasoning: string(json.delta) } : undefined;
     if (type === "response.output_item.added") {
       const item = record(json.item);
-      if (item?.type === "function_call") this.collectResponseTool(item);
+      if (item?.type === "function_call") {
+        const { key, tool } = this.responseTool(json, item);
+        if (!this.completedTools.has(tool.id)) this.tools.set(key, tool);
+      }
       return undefined;
     }
     if (type === "response.function_call_arguments.delta") {
-      const id = string(json.call_id) ?? string(json.item_id) ?? string(json.output_index) ?? "0";
-      const tool = this.tools.get(id) ?? { id, name: string(json.name) ?? "", arguments: "" };
+      const { key, tool } = this.responseTool(json);
+      if (this.completedTools.has(tool.id)) return undefined;
       tool.arguments += string(json.delta) ?? "";
       if (string(json.name)) tool.name = string(json.name)!;
-      this.tools.set(id, tool);
+      this.tools.set(key, tool);
       return undefined;
     }
     if (type === "response.function_call_arguments.done") {
       // Parallel tool calls interleave deltas and done events; flushing only
       // this tool guarantees a still-streaming sibling is neither emitted
       // prematurely nor aborted with an incomplete-arguments error.
-      const id = string(json.call_id) ?? string(json.item_id) ?? string(json.output_index) ?? "0";
       const item = record(json.item) ?? json;
-      const tool = this.tools.get(id) ?? { id, name: "", arguments: "" };
+      const { key, tool } = this.responseTool(json, item);
+      if (this.completedTools.has(tool.id)) return undefined;
       const name = string(json.name) ?? string(item.name);
       if (name) tool.name = name;
       const args = string(json.arguments) ?? string(item.arguments);
       if (args) tool.arguments = args;
-      this.tools.set(id, tool);
+      this.tools.set(key, tool);
       return this.emitSingleToolCall(tool.id);
     }
     if (type === "response.output_item.done") {
       const item = record(json.item) ?? json;
       // A completed message/text item must not flush sibling tool calls that
-      // are still accumulating undetruer parallel tool invocation.
+      // are still accumulating under parallel tool invocation.
       const itemType = string(item.type);
       if (itemType && itemType !== "function_call") return undefined;
-      const id = string(item.call_id) ?? string(item.item_id) ?? string(item.id) ?? "0";
-      const tool = this.tools.get(id) ?? { id, name: string(item.name) ?? "", arguments: "" };
+      const { key, tool } = this.responseTool(json, item);
+      if (this.completedTools.has(tool.id)) return undefined;
       if (string(item.name)) tool.name = string(item.name)!;
       if (string(item.arguments)) tool.arguments = string(item.arguments)!;
-      this.tools.set(id, tool);
+      this.tools.set(key, tool);
       return this.emitSingleToolCall(tool.id);
     }
     if (type === "response.completed" || type === "response.done") {
@@ -198,9 +204,11 @@ export class OpenCodeStreamParser {
     const parts = Array.isArray(content?.parts) ? content.parts.map(record).filter(Boolean) as Record<string, unknown>[] : [];
     const text = parts.filter((part) => part.thought !== true).map((part) => string(part.text) ?? "").join("");
     const reasoning = parts.filter((part) => part.thought === true).map((part) => string(part.text) ?? "").join("");
-    const toolCalls = parts.flatMap((part, index) => {
+    const toolCalls = parts.flatMap((part) => {
       const call = record(part.functionCall);
-      return call && string(call.name) ? [{ id: `google-tool-${String(index)}`, name: string(call.name)!, arguments: JSON.stringify(call.args ?? {}) }] : [];
+      // Missing IDs are assigned by the request-scoped reporter; a part index
+      // repeats across SSE events and cannot identify a call in conversation history.
+      return call && string(call.name) ? [{ id: string(call.id) ?? "", name: string(call.name)!, arguments: JSON.stringify(call.args ?? {}) }] : [];
     });
     const finishReason = string(candidate?.finishReason);
     const usage = record(json.usageMetadata);
@@ -214,10 +222,14 @@ export class OpenCodeStreamParser {
     for (const raw of value) {
       const item = record(raw);
       if (!item) continue;
-      // Key by index when present, otherwise by the tool id: falling back to a
-      // positional counter fragments parallel tool calls whose later deltas
-      // arrive without an index.
-      const key = typeof item.index === "number" ? String(item.index) : string(item.id) ?? `call-${this.tools.size}`;
+      // A gateway may alternate indexed and ID-only deltas for the same call.
+      const id = string(item.id);
+      const index = typeof item.index === "number" ? String(item.index) : undefined;
+      const aliases = [index === undefined ? undefined : `index:${index}`, id ? `id:${id}` : undefined]
+        .filter((value): value is string => value !== undefined);
+      const key = aliases.map((alias) => this.chatToolKeys.get(alias)).find((value) => value !== undefined)
+        ?? index ?? id ?? `call-${this.tools.size}`;
+      for (const alias of aliases) this.chatToolKeys.set(alias, key);
       const current = this.tools.get(key) ?? { id: string(item.id) ?? key, name: "", arguments: "" };
       const fn = record(item.function);
       if (string(item.id)) current.id = string(item.id)!;
@@ -229,9 +241,29 @@ export class OpenCodeStreamParser {
     }
   }
 
-  private collectResponseTool(value: Record<string, unknown>): void {
-    const id = string(value.call_id) ?? string(value.id) ?? string(value.output_index) ?? "0";
-    this.tools.set(id, { id, name: string(value.name) ?? "", arguments: string(value.arguments) ?? "" });
+  /** Responses deltas use item_id; tool results must use the distinct call_id. */
+  private responseTool(
+    event: Record<string, unknown>,
+    item: Record<string, unknown> = event,
+  ): { key: string; tool: ToolCallEvent } {
+    const index = event.output_index ?? item.output_index;
+    const aliases = [string(item.call_id), string(event.call_id), string(item.id), string(event.item_id), string(item.item_id),
+      typeof index === "number" || typeof index === "string" ? `output:${String(index)}` : undefined,
+    ].filter((value): value is string => value !== undefined);
+    const key = aliases.map((alias) => this.responseToolKeys.get(alias)).find((value) => value !== undefined) ?? aliases[0] ?? "0";
+    for (const alias of aliases) this.responseToolKeys.set(alias, key);
+    const callId = string(item.call_id) ?? string(event.call_id) ?? this.responseCallIds.get(key);
+    const tool = this.tools.get(key) ?? {
+      id: callId ?? string(item.id) ?? string(event.item_id) ?? key,
+      name: string(item.name) ?? "",
+      arguments: string(item.arguments) ?? "",
+    };
+    if (callId) {
+      tool.id = callId;
+      this.responseCallIds.set(key, callId);
+    }
+    if (!tool.name && string(item.name)) tool.name = string(item.name)!;
+    return { key, tool };
   }
 
   /**
