@@ -12,7 +12,7 @@ import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError
 import { reportStreamEvent } from "./provider/response";
 import { buildFunctionTools, buildResponsesTools, originalToolName } from "./tools/client-tools";
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
-import { OpenCodeStreamParser } from "./transport/sse";
+import { OpenCodeStreamParser, validateStreamCompletion } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
 import { modelPricingFields, openCodeModelCost } from "./models/pricing";
 import { activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
@@ -160,6 +160,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const sessionId = sessionIdFrom(messages, model.rawModelId);
     let idle: ReturnType<typeof setTimeout> | undefined;
     let sawOutput = false;
+    let timedOut: "total" | "idle" | undefined;
     let requestBody = mergeRequestBody(model.body, body);
     let authRefreshed = false;
     let parameterRetries = 0;
@@ -172,10 +173,16 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         const requestId = randomUUID();
         const headers = buildRequestHeaders(model.endpoint, credential.token, this.userAgent, requestId, sessionId, model.headers);
         if (credential.orgId) headers["x-org-id"] = credential.orgId;
-        const total = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+        const total = setTimeout(() => {
+          timedOut = "total";
+          controller.abort();
+        }, timeoutSeconds * 1000);
         const resetIdle = () => {
           if (idle) clearTimeout(idle);
-          idle = setTimeout(() => controller.abort(), idleSeconds * 1000);
+          idle = setTimeout(() => {
+            timedOut = "idle";
+            controller.abort();
+          }, idleSeconds * 1000);
         };
         resetIdle();
         try {
@@ -232,6 +239,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
             }
             if (token.isCancellationRequested) return;
           }
+          validateStreamCompletion(model.rawModelId, parser.finishReason);
           for (const event of parser.finish()) {
             sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
             const usage = reportStreamEvent(event, progress, model.rawModelId, (name) => originalToolName(name, options.tools));
@@ -247,6 +255,8 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         }
       }
     } catch (error) {
+      if (timedOut === "idle") throw new Error(`OpenCode request for ${model.rawModelId} received no data for ${idleSeconds} seconds`);
+      if (timedOut === "total") throw new Error(`OpenCode request for ${model.rawModelId} exceeded ${timeoutSeconds} seconds`);
       if (token.isCancellationRequested) return;
       throw error;
     } finally {
