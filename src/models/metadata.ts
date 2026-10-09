@@ -84,7 +84,9 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       reasoning: true,
       tool_call: true,
       modalities: { input: ["text"] },
-      reasoning_options: [{ type: "effort", values: ["none", "low", "high"] }],
+      // Live-verified 2026-10-09: hy3 accepts none|low|high|max and
+      // thinking:disabled; none genuinely disables (0 reasoning tokens).
+      reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
     },
     "deepseek-flash": {
       id: "deepseek-flash",
@@ -127,7 +129,10 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "glm",
       limit: { context: 204_800, output: 131_072 },
       reasoning: true,
-      reasoning_options: [{ type: "toggle" }],
+      // Live-verified 2026-10-09: the Go gateway routes glm-5.1/5.2/5.3 to a
+      // GLM-5.3 backend that only accepts reasoning_effort low|high|max —
+      // a thinking toggle or "none" is rejected ("thinking-only model").
+      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
       tool_call: true,
       modalities: { input: ["text"] },
       cost: { input: 1.4, output: 4.4, cache_read: 0.26 },
@@ -138,7 +143,8 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "glm",
       limit: { context: 204_800, output: 131_072 },
       reasoning: true,
-      reasoning_options: [{ type: "toggle" }],
+      // Mirrors the live-verified glm-5.1/5.2/5.3 effort set (see above).
+      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
       tool_call: true,
       modalities: { input: ["text"] },
       cost: { input: 1, output: 3.2, cache_read: 0.2 },
@@ -162,7 +168,9 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "mimo",
       limit: { context: 1_048_576, output: 131_072 },
       reasoning: true,
-      reasoning_options: [{ type: "toggle" }],
+      // Live-verified 2026-10-09 (mimo-v2.5/2.6): accepts reasoning_effort
+      // none|low|high; medium is rejected upstream.
+      reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high"] }],
       tool_call: true,
       modalities: { input: ["text"] },
     },
@@ -172,7 +180,8 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "mimo",
       limit: { context: 262_144, output: 131_072 },
       reasoning: true,
-      reasoning_options: [{ type: "toggle" }],
+      // Mirrors the live-verified mimo effort set (see mimo-v2-pro).
+      reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high"] }],
       tool_call: true,
       attachment: true,
       modalities: { input: ["text", "image", "audio", "video", "pdf"] },
@@ -183,7 +192,10 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "omen",
       limit: { context: 262_144, output: 65_536 },
       reasoning: true,
-      reasoning_options: [{ type: "toggle" }],
+      // Live-verified 2026-10-09: accepts low|high|max|none; "default" and
+      // a thinking object are rejected. Only max emits reasoning tokens
+      // reliably, so the profile mirrors the accepted effort set.
+      reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
       tool_call: true,
       attachment: true,
       modalities: { input: ["text", "image"] },
