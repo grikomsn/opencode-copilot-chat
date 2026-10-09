@@ -190,19 +190,29 @@ export function thinkingPayload(model: OpenCodeModel, selection: ThinkingSelecti
   }
 
   if (family === "minimax") {
-    if (off) return {};
+    // Live verification (2026-10-09): MiniMax M3 on the Go gateway rejects
+    // `thinking: {type: "enabled"}` (adaptive|disabled only) and accepts
+    // `thinking: {type: "disabled"}` for off. M2.x accepts enabled.
+    if (off) return { thinking: { type: "disabled" } };
     return { thinking: { type: /^minimax-m2\./i.test(modelId) ? "enabled" : "adaptive" } };
   }
 
   if (family === "glm") {
-    if (off) return { thinking: { type: "disabled" } };
+    // Live verification (2026-10-09): GLM 5.1/5.2/5.3 gateways are
+    // thinking-only — `reasoning_effort: "none"` and `thinking: {type:
+    // "disabled"}` both return "GLM-5.3 is a thinking-only model". `off` is
+    // therefore mapped to the lowest accepted effort rather than a disable
+    // field; only `on` still uses the toggle payload.
+    if (off) return { reasoning_effort: "low" };
     if (selection.effort === "on") return { thinking: { type: "enabled" } };
     return { reasoning_effort: selection.effort };
   }
 
   if (family === "mimo") {
+    // Live verification (2026-10-09): mimo-v2.5/2.6 accept none|low|high;
+    // `medium` is rejected upstream, so the picker omits it.
     if (off) return {};
-    const budget = ({ low: 8192, medium: 16384, high: 32768 } as Partial<Record<ReasoningEffort, number>>)[selection.effort];
+    const budget = ({ low: 8192, high: 32768 } as Partial<Record<ReasoningEffort, number>>)[selection.effort];
     return { reasoning_effort: selection.effort, ...(budget ? { budget_tokens: budget } : {}) };
   }
 
@@ -243,8 +253,8 @@ function thinkingSpec(model: OpenCodeModel): ThinkingSpec | undefined {
   if (family === "deepseek") return { efforts: ["off", "low", "medium", "high", "max"], defaultEffort: "high" };
   if (family === "glm") return hasToggle
     ? { efforts: ["off", "on"], defaultEffort: "on" }
-    : { efforts: ["off", "high", "max"], defaultEffort: "high" };
-  if (family === "mimo") return { efforts: ["off", "low", "medium", "high"], defaultEffort: "high" };
+    : { efforts: ["off", "low", "high", "max"], defaultEffort: "high" };
+  if (family === "mimo") return { efforts: ["off", "low", "high"], defaultEffort: "high" };
   if (family === "kimi" || family === "minimax" || hasToggle) return { efforts: ["off", "on"], defaultEffort: "on" };
   if (model.reasoning) return { efforts: ["off", "on"], defaultEffort: "on" };
   return undefined;

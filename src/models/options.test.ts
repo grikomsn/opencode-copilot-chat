@@ -90,9 +90,14 @@ test("maps toggle families to their gateway-specific payloads", () => {
   assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "kimi-k2.7-code", family: "kimi" }, { effort: "off" }), { thinking: { type: "enabled", keep: "all" } });
   assert.deepEqual(thinkingPayload({ ...model, endpoint: "messages", rawModelId: "minimax-m2.7", family: "minimax" }, { effort: "on" }), { thinking: { type: "enabled" } });
   assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "minimax-m3", family: "minimax" }, { effort: "on" }), { thinking: { type: "adaptive" } });
-  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "minimax-m3", family: "minimax" }, { effort: "off" }), {});
-  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "glm-5", family: "glm" }, { effort: "off" }), { thinking: { type: "disabled" } });
-  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "mimo-v2.5", family: "mimo" }, { effort: "medium" }), { reasoning_effort: "medium", budget_tokens: 16_384 });
+  // Live-verified 2026-10-09: MiniMax M3 accepts thinking:{type:"disabled"}
+  // for off on both gateways.
+  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "minimax-m3", family: "minimax" }, { effort: "off" }), { thinking: { type: "disabled" } });
+  // Live-verified 2026-10-09: GLM 5.x gateways are thinking-only; "off" maps
+  // to the lowest accepted effort because thinking:{type:"disabled"} and
+  // reasoning_effort:"none" are both rejected upstream.
+  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "glm-5", family: "glm" }, { effort: "off" }), { reasoning_effort: "low" });
+  assert.deepEqual(thinkingPayload({ ...model, endpoint: "chat-completions", rawModelId: "mimo-v2.5", family: "mimo" }, { effort: "high" }), { reasoning_effort: "high", budget_tokens: 32_768 });
   assert.deepEqual(thinkingPayload({ ...model, endpoint: "messages", rawModelId: "moonshot/kimi-k2.7-code", family: "kimi" }, { effort: "off" }), { thinking: { type: "enabled", keep: "all" } });
   const kimiSchema = modelConfigurationSchema({ ...model, rawModelId: "moonshot/kimi-k2.7-code", family: "kimi", reasoningOptions: undefined });
   assert.deepEqual(kimiSchema?.properties?.reasoningEffort.enumItemLabels, ["Always On (K2.7)"]);
@@ -105,10 +110,10 @@ test("derives known-family controls when catalogs omit reasoning metadata", () =
   const cases = [
     ["openai/gpt-5.6-sol", "gpt", ["off", "low", "medium", "high", "xhigh"]],
     ["deepseek/deepseek-v4-flash", "deepseek", ["off", "low", "medium", "high", "max"]],
-    ["zai/glm-5", "glm", ["off", "high", "max"]],
+    ["zai/glm-5", "glm", ["off", "low", "high", "max"]],
     ["moonshot/kimi-k2.6", "kimi", ["off", "on"]],
     ["minimax/minimax-m3", "minimax", ["off", "on"]],
-    ["xiaomi/mimo-v2.5", "mimo", ["off", "low", "medium", "high"]],
+    ["xiaomi/mimo-v2.5", "mimo", ["off", "low", "high"]],
     ["alibaba/qwen3.7-max", "qwen", ["off", "auto", "on"]],
   ] as const;
   for (const [rawModelId, family, efforts] of cases) {
