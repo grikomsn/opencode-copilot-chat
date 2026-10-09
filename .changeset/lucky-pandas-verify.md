@@ -1,5 +1,5 @@
 ---
-"opencode-bridge-copilot-chat": patch
+"opencode-bridge-for-copilot-chat": patch
 ---
 
 Align thinking controls with live-verified gateway behavior (probed 2026-10-09)
