@@ -26,8 +26,11 @@ function trackChanges(auth: OpenCodeAuth): AuthChangeSpy {
 }
 
 test("opens Console device verification at opencode.ai/console/device", async () => {
-  const fetcher: typeof fetch = async (input) => {
+  const fetcher: typeof fetch = async (input, init) => {
     assert.equal(String(input), "https://opencode.ai/console/auth/device/code");
+    // Organization scoping is requested so the browser authorization page can
+    // bind the grant to an organization.
+    assert.deepEqual(JSON.parse(String(init?.body)), { client_id: "opencode-cli", supports_org_scope: true });
     return Response.json({
       device_code: "device",
       user_code: "ABCD-EFGH",
@@ -119,7 +122,7 @@ test("Go device-code sign-in resolves a Console session credential", async () =>
   assert.equal(credential?.token, "access");
 });
 
-test("completes device flow and selects an organization", async () => {
+test("defers organization selection for multi-org accounts without a server scope", async () => {
   let tokenCalls = 0;
   const fetcher: typeof fetch = async (input) => {
     const url = String(input);
@@ -134,10 +137,112 @@ test("completes device flow and selects an organization", async () => {
   const auth = new OpenCodeAuth(new Secrets() as never, fetcher, now, async () => undefined);
   const device: DeviceCode = { deviceCode: "device", userCode: "ABCD", verificationUrl: "https://example.test", expiresAt: 100_000, intervalMs: 1, server: "https://example.test" };
   const session = await auth.completeDeviceSignIn(device);
-  assert.equal(session.orgId, "org-1");
-  assert.equal(session.orgName, "Alpha");
+  // Without a server-scoped grant the user picks the organization explicitly.
+  assert.equal(session.orgId, undefined);
+  assert.equal(session.scopedOrgId, undefined);
   await auth.selectOrganization({ id: "org-2", name: "Beta" });
   assert.equal((await auth.getConsoleSession())?.orgId, "org-2");
+});
+
+test("auto-selects the organization for single-org accounts", async () => {
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600 });
+    if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
+    return Response.json([{ id: "org-1", name: "Alpha" }]);
+  };
+  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000, async () => undefined);
+  const session = await auth.completeDeviceSignIn(device());
+  assert.equal(session.orgId, "org-1");
+  assert.equal(session.orgName, "Alpha");
+});
+
+test("honors a server-scoped organization from the device grant", async () => {
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600, org_id: "org-2" });
+    if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
+    return Response.json([{ id: "org-2", name: "Beta" }, { id: "org-1", name: "Alpha" }]);
+  };
+  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000, async () => undefined);
+  const session = await auth.completeDeviceSignIn(device());
+  // The server-scoped organization wins over any client-side default.
+  assert.equal(session.orgId, "org-2");
+  assert.equal(session.orgName, "Beta");
+  assert.equal(session.scopedOrgId, "org-2");
+});
+
+test("rejects a device grant for an unavailable organization", async () => {
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/auth/device/token")) return Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 3600, org_id: "org-9" });
+    if (url.endsWith("/api/user")) return Response.json({ id: "account", email: "user@example.com" });
+    return Response.json([{ id: "org-1", name: "Alpha" }]);
+  };
+  const auth = new OpenCodeAuth(new Secrets() as never, fetcher, () => 1_000, async () => undefined);
+  await assert.rejects(auth.completeDeviceSignIn(device()), /unavailable organization/);
+});
+
+test("blocks local organization switching for server-scoped sessions", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "access", refreshToken: "refresh",
+    expiresAt: Date.now() + 3600_000, accountId: "account", email: "user@example.com",
+    orgs: [{ id: "org-1", name: "Alpha" }, { id: "org-2", name: "Beta" }],
+    orgId: "org-1", orgName: "Alpha", scopedOrgId: "org-1",
+  }));
+  const auth = new OpenCodeAuth(secrets as never);
+  await assert.rejects(auth.selectOrganization({ id: "org-2", name: "Beta" }), /scoped to the organization chosen at sign-in/);
+  // The stored selection is untouched.
+  assert.equal((await auth.getConsoleSession())?.orgId, "org-1");
+});
+
+test("keeps the server-scoped organization across token refresh", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "old", refreshToken: "refresh",
+    expiresAt: 0, accountId: "account", email: "user@example.com",
+    orgs: [{ id: "org-1", name: "Alpha" }, { id: "org-2", name: "Beta" }],
+    orgId: "org-1", orgName: "Alpha", scopedOrgId: "org-1",
+  }));
+  const auth = new OpenCodeAuth(secrets as never, async () => Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600 }), () => 1_000);
+  const credential = await auth.getCredential("console");
+  assert.equal(credential?.token, "new");
+  const session = await auth.getConsoleSession();
+  // An omitted org_id keeps the granted scope.
+  assert.equal(session?.orgId, "org-1");
+  assert.equal(session?.scopedOrgId, "org-1");
+});
+
+test("rejects a refresh that changes the organization scope", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "old", refreshToken: "refresh",
+    expiresAt: 0, accountId: "account", email: "user@example.com",
+    orgs: [{ id: "org-1", name: "Alpha" }, { id: "org-2", name: "Beta" }],
+    orgId: "org-1", orgName: "Alpha", scopedOrgId: "org-1",
+  }));
+  const auth = new OpenCodeAuth(secrets as never, async () => Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600, org_id: "org-2" }), () => 1_000);
+  await assert.rejects(auth.getCredential("console"), /changed the session's organization scope/);
+});
+
+test("adopts an organization granted on token refresh", async () => {
+  const secrets = new Secrets();
+  await secrets.store("opencode.consoleSession.v1", JSON.stringify({
+    mode: "console", server: "https://example.test", accessToken: "old", refreshToken: "refresh",
+    expiresAt: 0, accountId: "account", email: "user@example.com",
+    orgs: [{ id: "org-1", name: "Alpha" }, { id: "org-2", name: "Beta" }],
+  }));
+  const auth = new OpenCodeAuth(secrets as never, async () => Response.json({ access_token: "new", refresh_token: "rotated", expires_in: 3600, org_id: "org-2" }), () => 1_000);
+  const changes = trackChanges(auth);
+  const credential = await auth.getCredential("console");
+  assert.equal(credential?.token, "new");
+  const session = await auth.getConsoleSession();
+  assert.equal(session?.orgId, "org-2");
+  assert.equal(session?.orgName, "Beta");
+  assert.equal(session?.scopedOrgId, undefined);
+  // Catalogs re-provision when the effective organization changes.
+  assert.equal(changes.count(), 1);
 });
 
 test("stores named Console sessions separately", async () => {

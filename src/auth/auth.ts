@@ -32,6 +32,8 @@ export interface ConsoleSession {
   orgs: ConsoleOrg[];
   orgId?: string;
   orgName?: string;
+  /** Organization bound by the server's device grant when sign-in requested org scope. */
+  scopedOrgId?: string;
 }
 
 export interface DeviceCode {
@@ -125,7 +127,10 @@ export class OpenCodeAuth {
     const response = await this.fetcher(`${normalized}/auth/device/code`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: OPENCODE_CLIENT_ID }),
+      // Opt in to organization scoping: the Console browser authorization page
+      // may bind the grant to an organization, returned as org_id at token
+      // exchange. Servers that ignore the flag behave as before.
+      body: JSON.stringify({ client_id: OPENCODE_CLIENT_ID, supports_org_scope: true }),
     });
     if (!response.ok) throw new Error(`OpenCode Console device authorization failed (${response.status})`);
     const value = await response.json() as Record<string, unknown>;
@@ -184,6 +189,13 @@ export class OpenCodeAuth {
       const accountId = string(user.id);
       const email = string(user.email);
       if (!accountId || !email) throw new Error("OpenCode Console returned incomplete account information");
+      // A server-scoped grant (org_id at token exchange) pins the session to
+      // the organization chosen during browser authorization. Un-scoped
+      // single-org accounts self-select; multi-org accounts pick explicitly.
+      const grantedOrgId = string(value.org_id);
+      const scopedOrg = grantedOrgId ? normalizedOrgs.find((item) => item.id === grantedOrgId) : undefined;
+      if (grantedOrgId && !scopedOrg) throw new Error("OpenCode Console granted a session for an unavailable organization");
+      const selected = scopedOrg ?? (normalizedOrgs.length === 1 ? normalizedOrgs[0] : undefined);
       const session: ConsoleSession = {
         mode: "console",
         server: device.server,
@@ -193,7 +205,8 @@ export class OpenCodeAuth {
         accountId,
         email,
         orgs: normalizedOrgs,
-        ...(normalizedOrgs[0] ? { orgId: normalizedOrgs[0].id, orgName: normalizedOrgs[0].name } : {}),
+        ...(selected ? { orgId: selected.id, orgName: selected.name } : {}),
+        ...(scopedOrg ? { scopedOrgId: scopedOrg.id } : {}),
       };
       await this.saveConsoleSession(session, normalized, generation);
       this.notifyChange();
@@ -211,6 +224,7 @@ export class OpenCodeAuth {
       }
       const session = await this.getConsoleSession(normalized);
       if (!session) throw new Error("Sign in to OpenCode Console first");
+      if (session.scopedOrgId) throw new Error("This Console session is scoped to the organization chosen at sign-in; sign in again to switch");
       const match = session.orgs.find((item) => item.id === org.id);
       if (!match) throw new Error("That organization is not available to this Console account");
       await this.storeConsoleSession({ ...session, orgId: match.id, orgName: match.name }, normalized);
@@ -287,16 +301,26 @@ export class OpenCodeAuth {
         const accessToken = string(value.access_token);
         const refreshToken = string(value.refresh_token) ?? session.refreshToken;
         if (!accessToken) throw new Error("OpenCode Console token refresh returned no access token");
+        const refreshedOrgId = string(value.org_id);
+        if (session.scopedOrgId && refreshedOrgId && refreshedOrgId !== session.scopedOrgId) {
+          throw new Error("OpenCode Console refresh changed the session's organization scope; sign in again");
+        }
+        const refreshedOrg = refreshedOrgId ? session.orgs.find((item) => item.id === refreshedOrgId) : undefined;
         const expiresAt = this.now() + positiveNumber(value.expires_in, 3600) * 1000;
-        let next = { ...session, accessToken, refreshToken, expiresAt };
+        // A refresh-granted organization is adopted on top of whatever session
+        // is stored at persist time; an omitted org_id keeps the current one.
+        const applyOrgScope = (target: ConsoleSession): ConsoleSession =>
+          refreshedOrg ? { ...target, orgId: refreshedOrg.id, orgName: refreshedOrg.name } : target;
+        let next = applyOrgScope({ ...session, accessToken, refreshToken, expiresAt });
         if (persist) {
           let persisted = false;
           await this.mutateSession(profile, async () => {
             const current = await this.getConsoleSession(profile);
             if (this.profileGeneration(profile) === generation && current && consoleSessionIdentity(current) === identity) {
-              next = { ...current, accessToken, refreshToken, expiresAt };
+              next = applyOrgScope({ ...current, accessToken, refreshToken, expiresAt });
               await this.storeConsoleSession(next, profile);
               persisted = this.profileGeneration(profile) === generation;
+              if (persisted && (next.orgId !== current.orgId || next.orgName !== current.orgName)) this.notifyChange();
             }
           });
           if (!persisted) throw new Error(`OpenCode Console profile “${profile}” changed while its session was refreshing`);
@@ -363,7 +387,7 @@ function consoleSessionIdentity(session: ConsoleSession): string {
 function parseSession(raw: string): ConsoleSession | undefined {
   try {
     const value = JSON.parse(raw) as Partial<ConsoleSession>;
-    if (value.mode !== "console" || !string(value.server) || !string(value.accessToken) || !string(value.refreshToken) || !string(value.accountId) || !string(value.email) || typeof value.expiresAt !== "number" || !Array.isArray(value.orgs)) return undefined;
+    if (value.mode !== "console" || !string(value.server) || !string(value.accessToken) || !string(value.refreshToken) || !string(value.accountId) || !string(value.email) || typeof value.expiresAt !== "number" || !Array.isArray(value.orgs) || (value.scopedOrgId !== undefined && typeof value.scopedOrgId !== "string")) return undefined;
     return value as ConsoleSession;
   } catch {
     return undefined;

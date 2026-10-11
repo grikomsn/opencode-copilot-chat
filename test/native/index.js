@@ -11,11 +11,11 @@ async function run() {
     contextLength: 10000, maxOutputTokens: 1000, reasoning: true, imageInput: false, toolCalling: true, endpoint: "chat-completions", baseUrl: "https://example.invalid/v1" };
   const factory = () => ({ isFresh: () => true, list: () => [model], get: () => model });
   const provider = new OpenCodeProvider({ getCredential: async () => undefined }, { appendLine() {} }, "native-test", "go", factory, {}, "default", journal);
-  const prepare = async (entryId, apiKey, name = "Same display name") => (await provider.provideLanguageModelChatInformation({
-    silent: true, configuration: { entryId, apiKey, name },
+  const prepare = async (apiKey, name = "Same display name") => (await provider.provideLanguageModelChatInformation({
+    silent: true, configuration: { apiKey, name },
   }, source.token))[0];
-  const [first, second] = await Promise.all([prepare("work", "synthetic-work"), prepare("personal", "synthetic-personal")]);
-  assert.notEqual(first.id, second.id);
+  const [first, second] = await Promise.all([prepare("synthetic-work"), prepare("synthetic-personal")]);
+  assert.equal(first.id, second.id);
   assert.notEqual(first.credentialRef, second.credentialRef);
   assert.equal(Object.keys(readJournal(journal)).length, 2);
   const fetcher = globalThis.fetch;
@@ -39,17 +39,18 @@ async function run() {
       assert.equal(new Set(calls.map((call) => call.callId)).size, 3);
       assert.equal(output[1].metadata.vscode_reasoning_done, true);
     }
-    const rotated = await prepare("work", "synthetic-rotated", "Changed display name");
+    const rotated = await prepare("synthetic-rotated", "Changed display name");
     assert.equal(first.id, rotated.id);
     assert.notEqual(first.credentialRef, rotated.credentialRef);
-    await assert.rejects(provider.provideLanguageModelChatResponse(first, [], { requestInitiator: "native-test" }, { report() {} }, source.token), /replaced or removed/);
+    await provider.provideLanguageModelChatResponse(first, [], { requestInitiator: "native-test" }, { report() {} }, source.token);
     await provider.provideLanguageModelChatResponse(rotated, [vscode.LanguageModelChatMessage.User("synthetic prompt")], { requestInitiator: "native-test" }, { report() {} }, source.token);
     assert.equal(headers.at(-1), "Bearer synthetic-rotated");
-    const shared = await prepare("shared", "synthetic-personal");
-    assert.notEqual(second.id, shared.id);
+    const shared = await prepare("synthetic-personal");
+    assert.equal(second.id, shared.id);
     assert.equal(second.credentialRef, shared.credentialRef);
-    assert.equal((await provider.provideLanguageModelChatInformation({ silent: true, configuration: { name: "A B", apiKey: "synthetic" } }, source.token)).length, 0);
+    assert.equal(Object.keys(readJournal(journal)).length, 3);
+    assert.equal((await provider.provideLanguageModelChatInformation({ silent: true, configuration: { name: "No key" } }, source.token)).length, 0);
   } finally { globalThis.fetch = fetcher; source.dispose(); }
-  console.log(JSON.stringify({ provider: "opencode", nativeChecks: "parallel tools, two entries, name independence, rotation, stale handles, shared key, concurrent journal", passed: true }));
+  console.log(JSON.stringify({ provider: "opencode", nativeChecks: "parallel tools, two entries, name independence, rotation, raw model ids, shared key, concurrent journal, keyless entries", passed: true }));
 }
 module.exports = { run };

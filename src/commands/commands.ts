@@ -128,6 +128,10 @@ async function runDeviceSignIn(auth: OpenCodeAuth, output: vscode.OutputChannel,
 async function chooseOrganizationForSession(auth: OpenCodeAuth, profile: string): Promise<void> {
   const session = await auth.getConsoleSession(profile);
   if (!session) throw new Error("OpenCode Console sign-in completed without a stored session");
+  // Server-scoped sessions keep the organization bound during browser
+  // authorization, and single-org accounts self-select; only multi-org
+  // accounts without a server scope need an explicit pick.
+  if (session.scopedOrgId || session.orgs.length <= 1) return;
   await chooseOrganization(auth, session.orgs, profile);
 }
 
@@ -209,8 +213,8 @@ async function selectConsoleProfile(auth: OpenCodeAuth, provider: OpenCodeProvid
 }
 
 async function chooseOrganization(auth: OpenCodeAuth, orgs: readonly ConsoleOrg[], profile = DEFAULT_CONSOLE_PROFILE): Promise<void> {
-  // Single-org accounts self-select during device authorization; only show
-  // the picker when there is a real choice to make.
+  // Single-org accounts self-select; only show the picker when there is a
+  // real choice to make.
   if (orgs.length <= 1) return;
   const picked = await vscode.window.showQuickPick(orgs.map((org) => ({ label: org.name, description: org.id, org })), { title: "Choose the OpenCode Console organization" });
   if (!picked) throw new Error("OpenCode Console organization selection was cancelled");
@@ -364,7 +368,7 @@ async function diagnostics(auth: OpenCodeAuth, providers: OpenCodeProviders, jou
     `- Console accounts (derived from stored sessions): ${profiles.length ? profiles.join(", ") : "none"}`,
     `- Active Console profile: ${activeConsole}`,
     `- Active Console session: ${session ? "present" : "missing"}`,
-    `- Console organization selected: ${session?.orgId ? "yes" : "no"}`,
+    `- Console organization selected: ${session?.orgId ? (session.scopedOrgId ? "yes (server-scoped at sign-in)" : "yes") : "no"}`,
     `- Accounts: ${accounts.length ? accounts.map((account) => `${account.profile}${account.email ? ` (${account.email})` : ""}`).join(", ") : "none"}`,
     ...journalLines, "",
     ...(await Promise.all(modelGroups.map(async ({ mode, models }) => [
