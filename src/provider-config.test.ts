@@ -21,12 +21,12 @@ test("declares native API-key and Console-profile provider entries", () => {
     };
     // Both vendors accept either a service-account key or an account profile;
     // neither field is required so entries may also be keyless device
-    // accounts. API-key entries validate the explicit entryId at provisioning.
+    // accounts. API-key entries scope by a one-way key fingerprint.
     assert.equal(configuration.required, undefined);
     assert.equal(configuration.properties?.apiKey.secret, true);
     assert.match(configuration.properties?.profile.pattern ?? "", /^\^/);
     assert.equal(configuration.properties?.name, undefined);
-    assert.match(configuration.properties?.entryId.pattern ?? "", /^\^/);
+    assert.equal(configuration.properties?.entryId, undefined);
   }
   for (const command of ["opencodeCopilot.refreshModels", "opencodeCopilot.testConnection"]) {
     assert.match(
@@ -41,9 +41,9 @@ test("declares native API-key and Console-profile provider entries", () => {
 });
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
-  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "profile-work::openai/gpt-5");
-  assert.equal(qualifiedModelId("profile-default", "openai/gpt-5", "console"), "profile-default::openai/gpt-5");
-  assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "legacy::openai/gpt-5");
+  // Model IDs are raw hosted IDs; the host namespaces them per provider group.
+  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "openai/gpt-5");
+  assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "openai/gpt-5");
   // Valid IDs can name accounts not signed in yet.
   assert.equal(consoleProfileFromConfiguration({ profile: "wrk_01KQ25AJRFKQDYB04QPEM2PN5C" }), "wrk_01kq25ajrfkqdyb04qpem2pn5c");
 });
