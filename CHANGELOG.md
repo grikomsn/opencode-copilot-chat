@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2
+
+### Patch Changes
+
+- c4b5352: Resolve OpenCode gateway URLs by model protocol, including Gemini on Go and metadata fallback. Derive discovery and inference URLs from shared canonical OpenCode constants while supporting legacy cached gateway bases.
+
 ## 2.1.1
 
 ### Patch Changes
