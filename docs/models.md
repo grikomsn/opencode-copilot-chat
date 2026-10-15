@@ -16,6 +16,14 @@ organization's configuration on the Console server and never show public or
 other-organization models. Console service-account key entries use the public
 discovery catalog like Go.
 
+Requests resolve each model's SDK metadata to its wire protocol, with model-family
+fallbacks when metadata is unavailable. Generic OpenCode gateway bases are mapped
+to the canonical `/inference` routes: `openai/v1` for Chat Completions and Responses,
+`anthropic/v1` for Messages, and `google/v1beta/models` for Gemini, with `/go` after
+`/inference` for Go models. This includes Gemini contributor models on Go, whose
+Google route is absent from the legacy `/zen/go/v1` gateway. Custom endpoints and
+explicit protocol-specific bases are preserved.
+
 Fields the live responses omit are enriched from the canonical `opencode` and
 `opencode-go` providers in a six-hour models.dev snapshot
 (`https://models.dev/api.json`) stored in VS Code `globalState`. Stale metadata

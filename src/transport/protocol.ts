@@ -84,14 +84,23 @@ export function resolveEndpointKind(
   if (/^qwen-?3\.8-max$/i.test(modelId)) return mode === "go" ? "messages" : "chat-completions";
   if (/^qwen/i.test(modelId)) return "messages";
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
-  if (mode === "console" && /^gemini-/i.test(modelId)) return "google";
+  if (/^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
 }
 
 export function endpointUrl(baseUrl: string, endpoint: EndpointKind, modelId: string): string {
-  const base = baseUrl.replace(/\/+$/, "");
+  const base = gatewayBaseUrl(baseUrl, endpoint);
   if (endpoint === "messages") return `${base}/messages`;
   if (endpoint === "responses") return `${base}/responses`;
-  if (endpoint === "google") return `${base}/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+  if (endpoint === "google") return `${base.endsWith("/models") ? base : `${base}/models`}/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
   return `${base}/chat/completions`;
+}
+
+/** Generic catalog bases are not inference roots for every protocol. */
+function gatewayBaseUrl(baseUrl: string, endpoint: EndpointKind): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  const gateway = /^https:\/\/opencode\.ai\/(?:zen|inference)(\/go)?\/v1$/.exec(base);
+  if (!gateway) return base;
+  const protocol = endpoint === "google" ? "google/v1beta" : endpoint === "messages" ? "anthropic/v1" : "openai/v1";
+  return `https://opencode.ai/inference${gateway[1] ?? ""}/${protocol}`;
 }
