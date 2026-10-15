@@ -76,8 +76,10 @@ test("uses authenticated live models and enriches fields from models.dev", async
 
 test("uses the live public catalog without credentials and excludes stale metadata-only models", async () => {
   let authorization: string | null | undefined;
+  let discoveryUrl: string | undefined;
   const catalog = new ModelCatalog(async (input, init) => {
     if (String(input).endsWith("/models")) {
+      discoveryUrl = String(input);
       authorization = new Headers(init?.headers).get("authorization");
       return Response.json({ data: [{ id: "current" }] });
     }
@@ -90,6 +92,7 @@ test("uses the live public catalog without credentials and excludes stale metada
   assert.deepEqual(models.map((model) => model.id), ["current"]);
   assert.equal(models[0].name, "Current");
   assert.equal(authorization, null);
+  assert.equal(discoveryUrl, "https://opencode.ai/inference/v1/models");
 });
 
 test("enriches discovery-only Go models with supplemental metadata", async () => {

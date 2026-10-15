@@ -7,8 +7,8 @@ test("maps legacy zen mode values onto the Console gateway", () => {
   assert.equal(normalizeMode("console"), "console");
   assert.equal(normalizeMode("go"), "go");
   assert.equal(normalizeMode(undefined), "console");
-  assert.equal(apiBaseForMode("console"), "https://opencode.ai/zen/v1");
-  assert.equal(apiBaseForMode("go"), "https://opencode.ai/zen/go/v1");
+  assert.equal(apiBaseForMode("console"), "https://opencode.ai/inference/v1");
+  assert.equal(apiBaseForMode("go"), "https://opencode.ai/inference/go/v1");
 });
 
 test("resolves Console device verification URLs onto the /console subpath", () => {
@@ -98,10 +98,16 @@ test("lets catalog package names override family heuristics", () => {
   assert.equal(resolveEndpointKind("grok-4.6", "go", "@ai-sdk/openai-compatible"), "responses");
 });
 
+test("keeps MiniMax fallbacks gateway-specific while honoring model SDK metadata", () => {
+  assert.equal(resolveEndpointKind("minimax-m3", "console"), "chat-completions");
+  assert.equal(resolveEndpointKind("minimax-m3", "go"), "messages");
+  assert.equal(resolveEndpointKind("minimax-m3-free", "console", "@ai-sdk/anthropic"), "messages");
+});
+
 test("resolves generic OpenCode gateway bases to protocol-specific inference routes", () => {
   for (const mode of ["console", "go"] as const) {
     const scope = mode === "go" ? "/go" : "";
-    for (const base of [apiBaseForMode(mode), `https://opencode.ai/inference${scope}/v1/`]) {
+    for (const base of [apiBaseForMode(mode), `https://opencode.ai/zen${scope}/v1/`]) {
       assert.equal(endpointUrl(base, "chat-completions", "kimi-k3"), `https://opencode.ai/inference${scope}/openai/v1/chat/completions`);
       assert.equal(endpointUrl(base, "responses", "gpt-6-luna"), `https://opencode.ai/inference${scope}/openai/v1/responses`);
       assert.equal(endpointUrl(base, "messages", "qwen3.8-max"), `https://opencode.ai/inference${scope}/anthropic/v1/messages`);
@@ -116,4 +122,5 @@ test("preserves custom and explicit protocol endpoints and encodes Google model 
     assert.equal(endpointUrl(base, "google", "model/id"), "https://example.test/v1beta/models/model%2Fid:streamGenerateContent?alt=sse");
   }
   assert.equal(endpointUrl("https://opencode.ai/inference/go/google/v1beta", "google", "gemini-4-argon-contributor"), "https://opencode.ai/inference/go/google/v1beta/models/gemini-4-argon-contributor:streamGenerateContent?alt=sse");
+  assert.equal(endpointUrl("https://opencode.ai.example.test/inference/v1", "responses", "custom"), "https://opencode.ai.example.test/inference/v1/responses");
 });
