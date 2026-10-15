@@ -1,6 +1,8 @@
-export const DEFAULT_CONSOLE_SERVER = "https://opencode.ai/console";
-export const CONSOLE_API_BASE_URL = "https://opencode.ai/zen/v1";
-export const GO_API_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_ORIGIN = "https://opencode.ai";
+export const OPENCODE_INFERENCE_BASE = `${OPENCODE_ORIGIN}/inference`;
+export const DEFAULT_CONSOLE_SERVER = `${OPENCODE_ORIGIN}/console`;
+export const CONSOLE_API_BASE_URL = `${OPENCODE_INFERENCE_BASE}/v1`;
+export const GO_API_BASE_URL = `${OPENCODE_INFERENCE_BASE}/go/v1`;
 export const OPENCODE_CLIENT_ID = "opencode-cli";
 export const OPENCODE_CLIENT = "opencode-copilot-chat";
 
@@ -9,6 +11,13 @@ export const LEGACY_ZEN_MODE = "zen";
 
 export type OpenCodeMode = "console" | "go";
 export type EndpointKind = "chat-completions" | "messages" | "responses" | "google";
+
+const PROTOCOL_BASE_PATHS: Readonly<Record<EndpointKind, string>> = {
+  "chat-completions": "openai/v1",
+  messages: "anthropic/v1",
+  responses: "openai/v1",
+  google: "google/v1beta",
+};
 
 /** Modes that can appear in persisted settings or state written by older versions. */
 export type LegacyOpenCodeMode = OpenCodeMode | "zen";
@@ -73,9 +82,7 @@ export function resolveEndpointKind(
   if (npm === "@ai-sdk/openai" || npm.endsWith("/openai")) return "responses";
   if (/^gpt-/i.test(modelId)) return "responses";
   if (/^claude-/i.test(modelId)) return "messages";
-  // Family-wide rather than version-pinned: every live grok* and qwen* model
-  // on both gateways is responses or messages, and models.dev omits `npm` for
-  // all qwen ids, which is the only signal the checks above have.
+  // Family fallbacks cover models whose SDK metadata is unavailable.
   if (/^grok(?:-|$)/i.test(modelId)) return "responses";
   if (/^muse-spark-/i.test(modelId)) return "responses";
   // qwen3.8-max is the only live qwen whose documented and live-verified shape
@@ -83,15 +90,29 @@ export function resolveEndpointKind(
   // /messages with a ModelProtocolUnsupported error); Go keeps messages.
   if (/^qwen-?3\.8-max$/i.test(modelId)) return mode === "go" ? "messages" : "chat-completions";
   if (/^qwen/i.test(modelId)) return "messages";
+  // MiniMax defaults to Messages on Go and Chat Completions on Console.
+  // Explicit model SDK metadata above can override either fallback.
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
-  if (mode === "console" && /^gemini-/i.test(modelId)) return "google";
+  if (/^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
 }
 
 export function endpointUrl(baseUrl: string, endpoint: EndpointKind, modelId: string): string {
-  const base = baseUrl.replace(/\/+$/, "");
+  const base = gatewayBaseUrl(baseUrl, endpoint);
   if (endpoint === "messages") return `${base}/messages`;
   if (endpoint === "responses") return `${base}/responses`;
-  if (endpoint === "google") return `${base}/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+  if (endpoint === "google") return `${base.endsWith("/models") ? base : `${base}/models`}/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
   return `${base}/chat/completions`;
+}
+
+/** Generic catalog bases are not inference roots for every protocol. */
+function gatewayBaseUrl(baseUrl: string, endpoint: EndpointKind): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  let url: URL;
+  try { url = new URL(base); }
+  catch { return base; }
+  if (url.origin !== OPENCODE_ORIGIN || url.username || url.password || url.search || url.hash) return base;
+  const gateway = /^\/(?:zen|inference)(\/go)?\/v1$/.exec(url.pathname);
+  if (!gateway) return base;
+  return `${OPENCODE_INFERENCE_BASE}${gateway[1] ?? ""}/${PROTOCOL_BASE_PATHS[endpoint]}`;
 }

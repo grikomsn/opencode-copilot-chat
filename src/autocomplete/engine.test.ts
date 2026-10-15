@@ -24,7 +24,7 @@ test("parses visible content deltas and ignores reasoning-only events", () => {
 test("streams a completion and sends the thinking-off payload", async () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const engine = new ChatCompletionEngine({
-    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    url: "https://opencode.ai/inference/go/openai/v1/chat/completions",
     headers: { Authorization: "Bearer test-key" },
     timeoutMs: 1_000,
     fetcher: async (url, init) => {
@@ -50,7 +50,7 @@ test("streams a completion and sends the thinking-off payload", async () => {
     max_tokens: number;
     temperature: number;
   };
-  assert.equal(requests[0]?.url, "https://opencode.ai/zen/go/v1/chat/completions");
+  assert.equal(requests[0]?.url, "https://opencode.ai/inference/go/openai/v1/chat/completions");
   assert.equal(body.model, "qwen3.7-plus");
   assert.equal(body.enable_thinking, false);
   assert.equal(body.stream, true);
@@ -64,7 +64,7 @@ test("streams a completion and sends the thinking-off payload", async () => {
 
 test("never echoes upstream error bodies", async () => {
   const engine = new ChatCompletionEngine({
-    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    url: "https://opencode.ai/inference/go/openai/v1/chat/completions",
     headers: {},
     timeoutMs: 1_000,
     fetcher: async () => new Response('{"error":"prompt context leak"}', { status: 401 }),
@@ -78,7 +78,7 @@ test("never echoes upstream error bodies", async () => {
 test("aborted caller signal surfaces as a quiet no-result", async () => {
   const controller = new AbortController();
   const engine = new ChatCompletionEngine({
-    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    url: "https://opencode.ai/inference/go/openai/v1/chat/completions",
     headers: {},
     timeoutMs: 1_000,
     fetcher: async (_url, init) => {
@@ -96,7 +96,7 @@ test("aborted caller signal surfaces as a quiet no-result", async () => {
 
 test("times out long requests via the request timeout", async () => {
   const engine = new ChatCompletionEngine({
-    url: "https://opencode.ai/zen/go/v1/chat/completions",
+    url: "https://opencode.ai/inference/go/openai/v1/chat/completions",
     headers: {},
     timeoutMs: 30,
     fetcher: (async (_url: string | URL | Request, init?: RequestInit) => {

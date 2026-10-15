@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { catalogScope, ModelCatalog, modelsFromProvider } from "./catalog";
+import { endpointUrl } from "../transport/protocol";
+
+test("routes Go Gemini discovery with fresh, missing, or unavailable metadata", async () => {
+  for (const metadata of [
+    { "opencode-go": { npm: "@ai-sdk/openai-compatible", api: "https://opencode.ai/inference/go/v1", models: { "gemini-4-argon-contributor": { provider: { npm: "@ai-sdk/google" } } } } },
+    { "opencode-go": { models: {} } },
+    undefined,
+  ]) {
+    const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
+      ? Response.json({ data: [{ id: "gemini-4-argon-contributor" }] })
+      : metadata ? Response.json(metadata) : new Response("unavailable", { status: 503 }));
+    const [model] = await catalog.refresh("go", undefined, false);
+    assert.equal(model.endpoint, "google");
+    assert.equal(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), "https://opencode.ai/inference/go/google/v1beta/models/gemini-4-argon-contributor:streamGenerateContent?alt=sse");
+  }
+});
 
 test("filters deprecated and paid Console models when free-only is enabled", () => {
   const models = modelsFromProvider("console", "opencode", { api: "https://example.test/v1" }, {
@@ -60,8 +76,10 @@ test("uses authenticated live models and enriches fields from models.dev", async
 
 test("uses the live public catalog without credentials and excludes stale metadata-only models", async () => {
   let authorization: string | null | undefined;
+  let discoveryUrl: string | undefined;
   const catalog = new ModelCatalog(async (input, init) => {
     if (String(input).endsWith("/models")) {
+      discoveryUrl = String(input);
       authorization = new Headers(init?.headers).get("authorization");
       return Response.json({ data: [{ id: "current" }] });
     }
@@ -74,6 +92,7 @@ test("uses the live public catalog without credentials and excludes stale metada
   assert.deepEqual(models.map((model) => model.id), ["current"]);
   assert.equal(models[0].name, "Current");
   assert.equal(authorization, null);
+  assert.equal(discoveryUrl, "https://opencode.ai/inference/v1/models");
 });
 
 test("enriches discovery-only Go models with supplemental metadata", async () => {

@@ -3,10 +3,9 @@
 ## Live metadata
 
 The extension discovers the catalog available to each configured provider entry
-from that gateway's live `models` endpoint: `https://opencode.ai/zen/v1/models`
-for Console and `https://opencode.ai/zen/go/v1/models` for Go. (The paths retain
-the historical `zen` segment upstream; the former Zen gateway is now Console's
-pay-as-you-go inference service.) Live responses
+from that gateway's live `models` endpoint: `https://opencode.ai/inference/v1/models`
+for Console and `https://opencode.ai/inference/go/v1/models` for Go. The former
+Zen gateway is now Console's pay-as-you-go inference service. Live responses
 provide names, context windows, maximum output lengths, reasoning support and
 effort options, image input, and tool-calling support used by Copilot Chat.
 Console free-tier entries can be filtered to cost-free models only.
@@ -15,6 +14,16 @@ Console device-code profiles skip public discovery: models come from the selecte
 organization's configuration on the Console server and never show public or
 other-organization models. Console service-account key entries use the public
 discovery catalog like Go.
+
+Requests resolve each model's SDK metadata to its wire protocol, with model-family
+fallbacks when metadata is unavailable. Generic OpenCode gateway bases are mapped
+to the canonical `/inference` routes: `openai/v1` for Chat Completions and Responses,
+`anthropic/v1` for Messages, and `google/v1beta/models` for Gemini, with `/go` after
+`/inference` for Go models. This includes Gemini contributor models on Go, whose
+Google route is absent from the legacy `/zen/go/v1` gateway. Custom endpoints and
+explicit protocol-specific bases are preserved.
+The Console server, discovery URLs, and inference URLs share one OpenCode origin
+constant. Legacy `/zen` bases in cached descriptors are normalized on use.
 
 Fields the live responses omit are enriched from the canonical `opencode` and
 `opencode-go` providers in a six-hour models.dev snapshot
