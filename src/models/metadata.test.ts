@@ -57,11 +57,15 @@ test("mirrors canonical upstream entries for discovery-only Go models", () => {
   assert.equal(qwen?.provider?.npm, "@ai-sdk/anthropic");
   assert.equal(qwen?.limit?.context, 262_144);
   assert.equal(qwen?.limit?.output, 65_536);
-  for (const id of ["minimax-m2.5", "kimi-k2.5", "glm-5.1", "glm-5"]) {
+  for (const id of ["minimax-m2.5", "kimi-k2.5", "glm-5.1", "glm-5", "kimi-k2.6", "grok-4.6", "qwen3.6-plus"]) {
     assert.equal(go[id]?.reasoning, true, id);
     assert.equal(go[id]?.tool_call, true, id);
     assert.ok(go[id]?.limit?.context, id);
   }
+  assert.equal(go["kimi-k2.6"]?.cost?.input, 0.95);
+  assert.equal(go["kimi-k2.6"]?.reasoning_options?.[0]?.type, "toggle");
+  assert.equal(go["qwen3.6-plus"]?.reasoning_options?.at(-1)?.type, "budget_tokens");
+  assert.equal(go["qwen3.6-plus"]?.reasoning_options?.at(-1)?.max, 81_920);
   assert.equal(snapshot.providers.opencode?.models?.["deepseek-flash"], undefined);
 });
 

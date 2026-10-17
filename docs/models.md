@@ -32,8 +32,9 @@ is returned immediately while refresh runs and remains available during
 models.dev outages. Models served by discovery before models.dev catalogs them
 use a small supplemental entry — currently the Go-only ids `hy3-preview`,
 `deepseek-flash`, `minimax-m2.5`, `kimi-k2.5`, `glm-5.1`, `glm-5`,
-`qwen3.5-plus`, `mimo-v2-pro`, `mimo-v2-omni`, and `omen-alpha`, plus the
-Console-only ids `jev-1.13` and `jev-1.13-free` —
+`qwen3.5-plus`, `mimo-v2-pro`, `mimo-v2-omni`, `omen-alpha`, `kimi-k2.6`,
+`grok-4.6`, and `qwen3.6-plus`, plus the Console-only ids `jev-1.13` and
+`jev-1.13-free` —
 which is superseded by the canonical upstream entry once it lands. Discovery
 also serves legacy alias ids (currently the Go id `deepseek-flash` for
 `deepseek-v4.1-flash`); the alias is hidden whenever the canonical id appears
@@ -46,12 +47,12 @@ falls back to the cached catalog and then to a bundled snapshot:
 
 | Gateway | Model | Context |
 | --- | --- | ---: |
-| Console | DeepSeek V4 Flash Free | 200K |
-| Console | Nemotron 3 Ultra Free | 1M |
+| Console | DeepSeek V4.1 Flash Free | 200K |
+| Console | Nemotron 3.5 Super VL Free | 1M |
 | Console | Big Pickle | 200K |
 | Console | Kimi K2.5 | 256K |
 | Go | Kimi K2.6 | 256K |
-| Go | DeepSeek V4 Flash | 1M |
+| Go | DeepSeek V4.1 Flash | 1M |
 | Go | MiniMax-M3 | 1M |
 | Go | Qwen3.7 Plus | 1M |
 | Go | GLM-5.3 | 1M |

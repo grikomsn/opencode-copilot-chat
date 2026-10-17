@@ -135,6 +135,41 @@ test("enriches discovery-only Go models with mirrored supplemental metadata", as
   });
 });
 
+test("enriches discovery-only Go models mirrored from Console canonicals", async () => {
+  const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
+    ? Response.json({ data: [{ id: "kimi-k2.6" }, { id: "grok-4.6" }, { id: "qwen3.6-plus" }, { id: "qwen3.7-max" }] })
+    : Response.json({ "opencode-go": { id: "opencode-go", models: {} } }));
+  const models = await catalog.refresh("go", { mode: "go", token: "token", origin: "key" }, false);
+  assert.deepEqual(models.map((model) => model.id), ["kimi-k2.6", "grok-4.6", "qwen3.6-plus", "qwen3.7-max"]);
+  const byId = new Map(models.map((model) => [model.id, model]));
+  const kimi = byId.get("kimi-k2.6");
+  assert.deepEqual({ name: kimi?.name, family: kimi?.family, context: kimi?.contextLength, image: kimi?.imageInput, reasoning: kimi?.reasoning, effort: kimi?.reasoningOptions?.[0]?.type, cost: kimi?.cost, endpoint: kimi?.endpoint }, {
+    name: "Kimi K2.6",
+    family: "kimi-k2",
+    context: 262_144,
+    image: true,
+    reasoning: true,
+    effort: "toggle",
+    cost: { input: 0.95, output: 4, cacheRead: 0.16 },
+    endpoint: "chat-completions",
+  });
+  const grok = byId.get("grok-4.6");
+  assert.deepEqual({ name: grok?.name, context: grok?.contextLength, endpoint: grok?.endpoint }, { name: "Grok 4.6", context: 500_000, endpoint: "responses" });
+  const qwen = byId.get("qwen3.6-plus");
+  assert.deepEqual({ name: qwen?.name, endpoint: qwen?.endpoint, effort: qwen?.reasoningOptions?.[0]?.type, budget: qwen?.reasoningOptions?.[1]?.type, budgetMax: qwen?.reasoningOptions?.[1]?.max }, {
+    name: "Qwen3.6 Plus",
+    endpoint: "messages",
+    effort: "toggle",
+    budget: "budget_tokens",
+    budgetMax: 81_920,
+  });
+  // No canonical entry exists yet, so nothing is guessed and the model keeps
+  // discovery defaults.
+  const unmirrored = byId.get("qwen3.7-max");
+  assert.equal(unmirrored?.name, "qwen3.7-max");
+  assert.equal(unmirrored?.contextLength, 32_768);
+});
+
 test("hides a live alias id when its canonical model is also discovered", async () => {
   const catalog = new ModelCatalog(async (input) => String(input).endsWith("/models")
     ? Response.json({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4.1-flash" }] })
