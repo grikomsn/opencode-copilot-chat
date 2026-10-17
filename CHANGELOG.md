@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.3
+
+### Patch Changes
+
+- e70234a: Resync model metadata with the current lineups: add Go supplemental mirrors for the discovery-served `kimi-k2.6`, `grok-4.6`, and `qwen3.6-plus` ids (mirrored from their Console canonical entries) and refresh the offline fallback catalog with currently served ids.
+
 ## 2.1.2
 
 ### Patch Changes
