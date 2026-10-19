@@ -47,5 +47,6 @@ matrix uses Node 22, 24, and 26.
 ## Release hygiene
 
 - Add a Changeset with `npm run changeset` for user-visible behavior changes.
+- Changesets must reference the package name `opencode-bridge-for-copilot-chat` (grep the `name` field in `package.json`; it is not the repo name). Validate with `npx changeset status` before pushing.
 - Documentation-only, test-only, and repository-maintenance changes do not need a Changeset.
 - Do not manually bump the version or edit release output unless explicitly performing the release workflow.
