@@ -56,6 +56,11 @@ test("routes known OpenCode model families to their native gateway shape", () =>
   assert.equal(resolveEndpointKind("muse-spark-1.2-contributor", "go"), "responses");
   assert.equal(resolveEndpointKind("minimax-m2.7", "go"), "messages");
   assert.equal(resolveEndpointKind("minimax-m3", "go"), "messages");
+  // MiniMax M3.1 Flash is openai-compatible on both gateways per the docs
+  // endpoint tables; it keeps chat completions even on Go.
+  assert.equal(resolveEndpointKind("minimax-m3.1-flash-free", "go"), "chat-completions");
+  assert.equal(resolveEndpointKind("minimax-m3.1-flash-free", "console"), "chat-completions");
+  assert.equal(resolveEndpointKind("minimax-m3.1-pro", "go"), "chat-completions");
   assert.equal(resolveEndpointKind("qwen3.7-plus", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.7-max", "go"), "messages");
   assert.equal(resolveEndpointKind("qwen3.8-max", "go"), "messages");
@@ -102,6 +107,8 @@ test("keeps MiniMax fallbacks gateway-specific while honoring model SDK metadata
   assert.equal(resolveEndpointKind("minimax-m3", "console"), "chat-completions");
   assert.equal(resolveEndpointKind("minimax-m3", "go"), "messages");
   assert.equal(resolveEndpointKind("minimax-m3-free", "console", "@ai-sdk/anthropic"), "messages");
+  // Explicit SDK metadata still beats the M3.1 generation carve-out.
+  assert.equal(resolveEndpointKind("minimax-m3.1-flash-free", "go", "@ai-sdk/anthropic"), "messages");
 });
 
 test("resolves generic OpenCode gateway bases to protocol-specific inference routes", () => {

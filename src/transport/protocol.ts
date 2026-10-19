@@ -92,6 +92,9 @@ export function resolveEndpointKind(
   if (/^qwen/i.test(modelId)) return "messages";
   // MiniMax defaults to Messages on Go and Chat Completions on Console.
   // Explicit model SDK metadata above can override either fallback.
+  // M3.1 Flash serves openai-compatible chat completions on both gateways
+  // (docs endpoint tables; 2026-10-20 audit), unlike M3 and M2.x on Go.
+  if (/^minimax-m3\.1/i.test(modelId)) return "chat-completions";
   if (mode === "go" && /^minimax-/i.test(modelId)) return "messages";
   if (/^gemini-/i.test(modelId)) return "google";
   return "chat-completions";
