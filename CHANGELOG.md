@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.5
+
+### Patch Changes
+
+- de5b931: Route MiniMax M3.1 Flash to the chat completions endpoint on both gateways,
+  matching the documented Go route instead of the MiniMax Messages fallback.
+
 ## 2.1.4
 
 ### Patch Changes
