@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
+import { estimateChatTokens } from "./provider/token-count";
+import { withContextOverflowHint } from "./provider/context-error";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type Credential } from "./auth/auth";
 import { messageOf, responseError } from "./errors";
 import { catalogScope, ModelCatalog, type OpenCodeModel } from "./models/catalog";
@@ -283,7 +285,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
       if (timedOut === "idle") throw new Error(`OpenCode request for ${model.rawModelId} received no data for ${idleSeconds} seconds`);
       if (timedOut === "total") throw new Error(`OpenCode request for ${model.rawModelId} exceeded ${timeoutSeconds} seconds`);
       if (token.isCancellationRequested) return;
-      throw error;
+      throw withContextOverflowHint(error);
     } finally {
       if (idle) clearTimeout(idle);
       cancellation.dispose();
@@ -291,8 +293,7 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
   }
 
   async provideTokenCount(_model: OpenCodeModelInformation, value: string | vscode.LanguageModelChatRequestMessage, _token: vscode.CancellationToken): Promise<number> {
-    const text = typeof value === "string" ? value : value.content.map((part) => part instanceof vscode.LanguageModelTextPart ? part.value : "").join("\n");
-    return Math.max(0, Math.ceil(text.length / 4));
+    return estimateChatTokens(value);
   }
 
   /** Records which model entries VS Code last asked about, for reconciliation diagnostics. */

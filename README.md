@@ -43,6 +43,8 @@ Version 1.0.0 starts a new listing with ID `grikomsn.opencode-bridge-for-copilot
 
 Composer controls override workspace defaults; ordered effort controls default to High, binary controls default On, and Qwen defaults Auto. Console and Go use each entry's authenticated live catalog, while a Console device-code profile shows only models enabled for the account's organization — scoped by Console at sign-in when it grants org scope, otherwise picked explicitly (single-organization accounts self-select; there is no silent default). Click the OpenCode status-bar item to inspect tokens for the most recently used entry.
 
+Context token counts are estimates. Tool-result text, tool arguments, thinking, and image inputs are included in context budgeting. If the service rejects a full context window, run `/compact` in Copilot Chat, reduce attachments or tool output, or start a new chat.
+
 ## Documentation
 
 - [Setup, commands, settings, and troubleshooting](https://github.com/grikomsn/opencode-copilot-chat/blob/main/docs/setup.md)
