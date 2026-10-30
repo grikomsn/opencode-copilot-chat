@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.7
+
+### Patch Changes
+
+- 99b8726: Re-mirror supplemental model metadata from models.dev canonicals (kimi-k2.5 cache rate, qwen plus-tier family and token-budget controls).
+
 ## 2.1.6
 
 ### Patch Changes
