@@ -65,7 +65,7 @@ test("mirrors canonical upstream entries for discovery-only Go models", () => {
   assert.equal(go["kimi-k2.6"]?.cost?.input, 0.95);
   assert.equal(go["kimi-k2.6"]?.reasoning_options?.[0]?.type, "toggle");
   assert.equal(go["qwen3.6-plus"]?.reasoning_options?.at(-1)?.type, "budget_tokens");
-  assert.equal(go["qwen3.6-plus"]?.reasoning_options?.at(-1)?.max, 81_920);
+  assert.equal(go["qwen3.6-plus"]?.reasoning_options?.at(-1)?.max, undefined);
   assert.equal(snapshot.providers.opencode?.models?.["deepseek-flash"], undefined);
 });
 

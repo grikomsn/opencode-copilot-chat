@@ -161,7 +161,7 @@ test("enriches discovery-only Go models mirrored from Console canonicals", async
     endpoint: "messages",
     effort: "toggle",
     budget: "budget_tokens",
-    budgetMax: 81_920,
+    budgetMax: undefined,
   });
   // No canonical entry exists yet, so nothing is guessed and the model keeps
   // discovery defaults.
