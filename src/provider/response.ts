@@ -14,6 +14,8 @@ export type ResponsePartConstructors = Pick<typeof vscode,
 export class StreamResponseReporter {
   private thinkingOpen = false;
   private toolIndex = 0;
+  /** Usage events held back while a thinking segment is open, flushed on close. */
+  private pendingUsage: { normalized: OpenCodeUsageSnapshot; native: Record<string, unknown> }[] = [];
 
   constructor(
     private readonly progress: vscode.Progress<vscode.LanguageModelResponsePart2>,
@@ -30,7 +32,7 @@ export class StreamResponseReporter {
       this.progress.report(new this.parts.LanguageModelThinkingPart(event.reasoning));
       this.thinkingOpen = true;
     }
-    if (event.text || event.toolCalls?.length || event.finishReason || event.done) this.finish();
+    if (event.text || event.toolCalls?.length || event.finishReason || event.done) this.flushThinking();
     if (event.text) this.progress.report(new this.parts.LanguageModelTextPart(event.text));
     for (const tool of event.toolCalls ?? []) {
       this.progress.report(new this.parts.LanguageModelToolCallPart(
@@ -41,21 +43,40 @@ export class StreamResponseReporter {
     }
     if (!event.usage) return undefined;
     const usage = usageFromPayload(event.usage, this.modelId);
-    const native = {
-      ...(usage.inputTokens === undefined ? {} : { prompt_tokens: usage.inputTokens }),
-      ...(usage.outputTokens === undefined ? {} : { completion_tokens: usage.outputTokens }),
-      ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
-    };
-    this.progress.report(new this.parts.LanguageModelDataPart(new TextEncoder().encode(JSON.stringify(native)), USAGE_MIME_TYPE));
-    this.progress.report(new this.parts.LanguageModelDataPart(new TextEncoder().encode(JSON.stringify(event.usage)), OPENCODE_USAGE_MIME_TYPE));
+    // Copilot Chat only merges reasoning deltas while the previous reported
+    // part is also thinking; hold usage data parts until the segment closes.
+    if (this.thinkingOpen) {
+      this.pendingUsage.push({ normalized: usage, native: event.usage });
+      return usage;
+    }
+    this.reportUsage(usage, event.usage);
     return usage;
   }
 
   /** Also close reasoning when EOF, a transport error, or a timeout ends it. */
   finish(): void {
+    this.flushThinking();
+  }
+
+  private flushThinking(): void {
     if (!this.thinkingOpen) return;
+    this.thinkingOpen = false;
     const ThinkingPart = this.parts.LanguageModelThinkingPart;
     if (ThinkingPart) this.progress.report(new ThinkingPart("", "", { vscode_reasoning_done: true }));
-    this.thinkingOpen = false;
+    for (const usage of this.pendingUsage.splice(0)) this.reportUsage(usage.normalized, usage.native);
+  }
+
+  private reportUsage(usage: OpenCodeUsageSnapshot, native: Record<string, unknown> | undefined): void {
+    const payload = {
+      ...(usage.inputTokens === undefined ? {} : { prompt_tokens: usage.inputTokens }),
+      ...(usage.outputTokens === undefined ? {} : { completion_tokens: usage.outputTokens }),
+      ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
+    };
+    this.progress.report(new this.parts.LanguageModelDataPart(new TextEncoder().encode(JSON.stringify(payload)), USAGE_MIME_TYPE));
+    if (native) {
+      this.progress.report(new this.parts.LanguageModelDataPart(
+        new TextEncoder().encode(JSON.stringify(native)), OPENCODE_USAGE_MIME_TYPE,
+      ));
+    }
   }
 }
