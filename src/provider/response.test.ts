@@ -50,7 +50,7 @@ test("keeps a mixed SSE reasoning/text/tool event in conversational order", () =
   ]);
 });
 
-test("usage updates do not split thinking and parallel tools close it once", () => {
+test("usage during thinking waits for the segment close so deltas stay mergeable", () => {
   const { reporter, parts } = harness();
   reporter.report({ reasoning: "First " });
   const usage = reporter.report({ usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } });
@@ -61,6 +61,9 @@ test("usage updates do not split thinking and parallel tools close it once", () 
     { id: "b", name: "read", arguments: "{}" },
   ] });
   reporter.finish();
+  // Copilot Chat merges a thinking delta only when the previous part is a
+  // non-empty thinking part; interleaved usage data parts would split the
+  // reasoning into one bubble per delta.
   assert.deepEqual(parts.filter((part) => !(part instanceof DataPart)), [
     new ThinkingPart("First "), new ThinkingPart("second."),
     new ThinkingPart("", "", { vscode_reasoning_done: true }),
@@ -69,6 +72,27 @@ test("usage updates do not split thinking and parallel tools close it once", () 
   const data = parts.filter((part): part is DataPart => part instanceof DataPart);
   assert.deepEqual(data.map((part) => part.mimeType), ["usage", "application/vnd.opencode.usage+json"]);
   assert.deepEqual(JSON.parse(new TextDecoder().decode(data[0].data)), { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 });
+});
+
+test("usage events between reasoning deltas wait for the segment close", () => {
+  const { reporter, parts } = harness();
+  reporter.report({ reasoning: "Son" });
+  reporter.report({ usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } });
+  reporter.report({ reasoning: "ar still flags a" });
+  reporter.report({ usage: { prompt_tokens: 20, completion_tokens: 9, total_tokens: 29 } });
+  reporter.report({ reasoning: " regex" });
+  reporter.report({ text: "answer" });
+  reporter.finish();
+  assert.deepEqual(parts.filter((part) => !(part instanceof DataPart)), [
+    new ThinkingPart("Son"), new ThinkingPart("ar still flags a"), new ThinkingPart(" regex"),
+    new ThinkingPart("", "", { vscode_reasoning_done: true }),
+    new TextPart("answer"),
+  ]);
+  const data = parts.filter((part): part is DataPart => part instanceof DataPart);
+  assert.deepEqual(data.map((part) => part.mimeType),
+    ["usage", "application/vnd.opencode.usage+json", "usage", "application/vnd.opencode.usage+json"]);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(data[0].data)).completion_tokens, 4);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(data[2].data)).completion_tokens, 9);
 });
 
 test("closes thinking on completion and EOF without duplicating markers", () => {
