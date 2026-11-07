@@ -42,8 +42,8 @@ test("keeps a mixed SSE reasoning/text/tool event in conversational order", () =
   }, finish_reason: "tool_calls" }] })}\n\n`);
   for (const event of events) reporter.report(event);
   assert.deepEqual(parts, [
-    new ThinkingPart("Finish thinking."),
-    new ThinkingPart("", "", { vscode_reasoning_done: true }),
+    new ThinkingPart("Finish thinking.", "opencode-thinking-request"),
+    new ThinkingPart("", "opencode-thinking-request", { vscode_reasoning_done: true }),
     new TextPart("Read both files."),
     new ToolPart("a", "read", { path: "a" }),
     new ToolPart("b", "read", { path: "b" }),
@@ -65,8 +65,8 @@ test("usage during thinking waits for the segment close so deltas stay mergeable
   // non-empty thinking part; interleaved usage data parts would split the
   // reasoning into one bubble per delta.
   assert.deepEqual(parts.filter((part) => !(part instanceof DataPart)), [
-    new ThinkingPart("First "), new ThinkingPart("second."),
-    new ThinkingPart("", "", { vscode_reasoning_done: true }),
+    new ThinkingPart("First ", "opencode-thinking-request"), new ThinkingPart("second.", "opencode-thinking-request"),
+    new ThinkingPart("", "opencode-thinking-request", { vscode_reasoning_done: true }),
     new ToolPart("a", "read", {}), new ToolPart("b", "read", {}),
   ]);
   const data = parts.filter((part): part is DataPart => part instanceof DataPart);
@@ -84,8 +84,8 @@ test("usage events between reasoning deltas wait for the segment close", () => {
   reporter.report({ text: "answer" });
   reporter.finish();
   assert.deepEqual(parts.filter((part) => !(part instanceof DataPart)), [
-    new ThinkingPart("Son"), new ThinkingPart("ar still flags a"), new ThinkingPart(" regex"),
-    new ThinkingPart("", "", { vscode_reasoning_done: true }),
+    new ThinkingPart("Son", "opencode-thinking-request"), new ThinkingPart("ar still flags a", "opencode-thinking-request"), new ThinkingPart(" regex", "opencode-thinking-request"),
+    new ThinkingPart("", "opencode-thinking-request", { vscode_reasoning_done: true }),
     new TextPart("answer"),
   ]);
   const data = parts.filter((part): part is DataPart => part instanceof DataPart);
@@ -102,7 +102,7 @@ test("closes thinking on completion and EOF without duplicating markers", () => 
     reporter.report(terminal);
     reporter.finish();
     reporter.finish();
-    assert.deepEqual(parts, [new ThinkingPart("Reasoning"), new ThinkingPart("", "", { vscode_reasoning_done: true })]);
+    assert.deepEqual(parts, [new ThinkingPart("Reasoning", "opencode-thinking-request"), new ThinkingPart("", "opencode-thinking-request", { vscode_reasoning_done: true })]);
   }
 });
 
