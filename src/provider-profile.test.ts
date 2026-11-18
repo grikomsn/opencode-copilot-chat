@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeConsoleProfileFromState, apiKeyCredentialId, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
+import { activeConsoleProfileFromState, apiKeyCredentialId, consoleProfileFromConfiguration } from "./provider-profile";
 
 test("validates account aliases without routing malformed profiles to default", () => {
   assert.equal(consoleProfileFromConfiguration({ profile: "  Work-Team  " }), "work-team");
@@ -9,11 +9,10 @@ test("validates account aliases without routing malformed profiles to default", 
 });
 
 test("keeps key fingerprints stable while model IDs stay raw", () => {
-  assert.equal(qualifiedModelId("ignored", "glm", "go"), "glm");
-  assert.equal(qualifiedModelId("profile-default", "glm", "console"), "glm");
   assert.notEqual(apiKeyCredentialId("first"), apiKeyCredentialId("rotated"));
   assert.equal(apiKeyCredentialId("shared"), apiKeyCredentialId("shared"));
   assert.match(apiKeyCredentialId("key"), /^key-[0-9a-f]{16}$/);
+  assert.equal(apiKeyCredentialId(" key \n"), apiKeyCredentialId("key"));
 });
 
 test("restores command state defensively", () => {

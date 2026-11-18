@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { DEFAULT_INLINE_GATEWAY, DEFAULT_INLINE_MODEL, INLINE_SUGGESTIONS_GATEWAY_SETTING, INLINE_SUGGESTIONS_MODEL_SETTING, parseInlineGateway, type InlineGateway } from "../autocomplete/config";
 import { inlineModelChoicesForGateway } from "../autocomplete/models";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type ConsoleOrg } from "../auth/auth";
-import { messageOf } from "../errors";
+import { messageOf } from "../kit/errors";
 import { OpenCodeProvider } from "../provider";
 import { OPENCODE_PROVIDER_DEFINITIONS } from "../provider/definitions";
 import { readJournal, reconcile, type StoredAccount } from "../provider-journal";

@@ -32,16 +32,6 @@ export function isTransientServerError(status: number, detail: string): boolean 
     || status === 500 && (/Router[._-]?Unavailable/i.test(detail) || /(?:^|:\s)Internal server error\.?\s*$/i.test(detail));
 }
 
-export function isTransientNetworkError(error: unknown): boolean {
-  if (!(error instanceof Error) || error.name === "AbortError") return false;
-  const detail = `${error.name}: ${error.message} ${networkCause(error)}`;
-  return /fetch failed|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET|socket hang up/i.test(detail);
-}
-
-export function retryDelayMs(attempt: number): number {
-  return Math.min(2_000, 250 * 2 ** Math.max(0, attempt));
-}
-
 function patchContextOverflow(message: string, body: Record<string, unknown>): RetryPatch | undefined {
   const context = tokenCount(/maximum context length is\s*([\d,]+)\s*tokens?/i.exec(message)?.[1]);
   const requested = tokenCount(/you requested\s*([\d,]+)\s*tokens?/i.exec(message)?.[1]);
@@ -70,10 +60,4 @@ function positive(value: unknown): number | undefined {
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-function networkCause(error: Error): string {
-  const cause = (error as Error & { cause?: unknown }).cause;
-  if (cause instanceof Error) return `${cause.name}: ${cause.message} ${networkCause(cause)}`;
-  return typeof cause === "string" ? cause : "";
 }

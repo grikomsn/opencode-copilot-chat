@@ -8,6 +8,20 @@ npm run package
 
 The extension host is the right place to test authenticated inference. Unit tests use injected fetchers and fake Secret Storage; they never contact OpenCode with real credentials.
 
+## Shared kit
+
+`src/kit/` is the [copilot-chat-kit](https://github.com/grikomsn/copilot-chat-kit)
+git submodule shared by every Copilot Chat provider extension. It compiles and
+tests with this repository (`npm test` runs its colocated tests too), so a fresh
+clone needs `git clone --recurse-submodules` or `git submodule update --init`.
+
+- Change shared behavior in the kit repository, push it, then run
+  `git submodule update --remote src/kit` here and commit the bump.
+- Keep provider quirks (auth, dialect extensions, cost tables, usage domains)
+  in this repository; configure kit modules through their options instead of
+  editing them in place.
+- Dependabot proposes kit bumps weekly; CI checks out submodules.
+
 ## Releases
 
 User-visible changes use Changesets. The release workflow opens a version pull request; after it is merged, CI validates and packages the extension, publishes it to the Visual Studio Marketplace using the existing `VSCE_PAT` repository secret, and attaches the VSIX to a GitHub release.
