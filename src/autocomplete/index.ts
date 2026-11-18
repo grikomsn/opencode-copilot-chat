@@ -10,9 +10,10 @@
 
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
-import { ChatCompletionEngine } from "./engine";
-import { OpenCodeInlineCompletionProvider } from "./provider";
-import type { CompletionContext, CompletionEngine, CompletionResult } from "./types";
+import { ChatCompletionEngine } from "../kit/autocomplete/chat-engine";
+import { InlineCompletionProvider } from "../kit/autocomplete/provider";
+import type { CompletionContext, CompletionEngine, CompletionResult } from "../kit/autocomplete/types";
+import { buildCompletionPrompt } from "./prompt";
 import {
   clampNumber,
   CONFIG_SECTION,
@@ -69,6 +70,8 @@ export function registerInlineCompletions(context: vscode.ExtensionContext, deps
       }
       const url = endpointUrl(apiBaseForMode(gateway), "chat-completions", ctx.modelId);
       const keyed = new ChatCompletionEngine({
+        label: "OpenCode",
+        buildPrompt: (request) => buildCompletionPrompt(request.prefix, request.suffix, request.modelId),
         url,
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -86,7 +89,7 @@ export function registerInlineCompletions(context: vscode.ExtensionContext, deps
     },
   };
 
-  const provider = new OpenCodeInlineCompletionProvider({
+  const provider = new InlineCompletionProvider({
     engine,
     isEnabled: () => readSetting(INLINE_SUGGESTIONS_SETTING, false),
     resolveModelId: () => readSetting(INLINE_SUGGESTIONS_MODEL_SETTING, DEFAULT_INLINE_MODEL),

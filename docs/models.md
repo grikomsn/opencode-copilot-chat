@@ -70,7 +70,7 @@ and Maximum. Auto and Maximum keep the default behavior.
 A specific tier acts as a local upper limit: the selection is stored per model
 by VS Code, never exceeds the model's advertised input limit, and when the
 converted request exceeds the selected tier the oldest conversation turns are
-trimmed before the request is built (`src/provider/history-trim.ts`), across
+trimmed before the request is built (`src/kit/history-trim.ts`), across
 all four endpoint dialects. The first turn, the current turn, and tool-call
 adjacency are always preserved, and models without a fitting tier keep their
 picker unchanged.

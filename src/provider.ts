@@ -1,23 +1,28 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
-import { estimateChatTokens } from "./provider/token-count";
-import { withContextOverflowHint } from "./provider/context-error";
+import { trimChatHistoryToFit, trimResponsesInputToFit } from "./kit/history-trim";
+import { messageOf, withContextOverflowHint } from "./kit/errors";
+import { isTransientNetworkError, retryDelayMs, waitForRetry } from "./kit/retry";
+import { readTextStream, RequestDeadline } from "./kit/stream";
+import { estimateChatTokens } from "./kit/token-count";
+import { stringifyWellFormedJson } from "./kit/unicode";
 import { DEFAULT_CONSOLE_PROFILE, normalizeConsoleProfile, OpenCodeAuth, type Credential } from "./auth/auth";
-import { messageOf, responseError } from "./errors";
+import { responseError } from "./errors";
 import { catalogScope, ModelCatalog, type OpenCodeModel } from "./models/catalog";
 import { advertisedModelLimits, requestOutputLimit } from "./models/limits";
-import { modelConfigurationSchema, requestModelConfiguration, resolveContextCap, resolveContextSize, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
-import { trimChatHistoryToFit, trimResponsesInputToFit } from "./provider/history-trim";
+import { modelConfigurationSchema, requestModelConfiguration, resolveThinkingSelection, thinkingFamilyForModel, type ReasoningEffort } from "./models/options";
+import { resolveContextCap, resolveContextSize } from "./kit/context-size";
 import { convertChatMessages, convertResponsesMessages } from "./provider/messages";
 import { buildRequestBody, mergeRequestBody } from "./provider/request";
-import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./provider/retry";
+import { analyzeHttp400ForRetry, isTransientServerError } from "./provider/retry";
 import { StreamResponseReporter } from "./provider/response";
 import { buildFunctionTools, buildResponsesTools, originalToolName } from "./tools/client-tools";
 import { endpointUrl, buildRequestHeaders, type OpenCodeMode } from "./transport/protocol";
 import { OpenCodeStreamParser, validateStreamCompletion } from "./transport/sse";
 import { recordRequestUsage, type OpenCodeUsageSnapshot } from "./usage/domain";
-import { modelPricingFields, openCodeModelCost } from "./models/pricing";
-import { apiKeyCredentialId, activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId, type CredentialOrigin } from "./provider-profile";
+import { modelPricingFields } from "./kit/pricing";
+import { openCodeModelCost } from "./models/pricing";
+import { apiKeyCredentialId, activeConsoleProfileFromState, consoleProfileFromConfiguration, type CredentialOrigin } from "./provider-profile";
 import { NativeKeyEntries } from "./provider-credentials";
 import { journalKey, type EntryJournalRecord, updateJournalEntry } from "./provider-journal";
 
@@ -169,14 +174,12 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const thinking = resolveThinkingSelection(model, requestModelConfiguration(options), fallbackEffort, fallbackBudget);
     const maxOutput = requestOutputLimit(model, config.get<number>("maxOutputTokens", 0), estimateInputTokens(messages, options.tools));
     const body = buildRequestBody(model, converted, responsesInput, tools, responsesTools, thinking, maxOutput, options.toolMode === vscode.LanguageModelChatToolMode.Required ? "required" : "auto");
-    const controller = new AbortController();
-    const cancellation = token.onCancellationRequested(() => controller.abort());
     const timeoutSeconds = Math.max(10, config.get<number>("requestTimeoutSeconds", 600));
     const idleSeconds = Math.max(10, config.get<number>("streamIdleTimeoutSeconds", 120));
+    // One deadline spans auth refreshes and retries, so retries never extend the total budget.
+    const deadline = new RequestDeadline({ totalMs: timeoutSeconds * 1000, idleMs: idleSeconds * 1000, cancellation: token });
     const sessionId = sessionIdFrom(messages, model.rawModelId);
-    let idle: ReturnType<typeof setTimeout> | undefined;
     let sawOutput = false;
-    let timedOut: "total" | "idle" | undefined;
     let requestBody = mergeRequestBody(model.body, body);
     let authRefreshed = false;
     let parameterRetries = 0;
@@ -189,27 +192,15 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
         const requestId = randomUUID();
         const headers = buildRequestHeaders(model.endpoint, credential.token, this.userAgent, requestId, sessionId, model.headers);
         if (credential.orgId) headers["x-org-id"] = credential.orgId;
-        const total = setTimeout(() => {
-          timedOut = "total";
-          controller.abort();
-        }, timeoutSeconds * 1000);
-        const resetIdle = () => {
-          if (idle) clearTimeout(idle);
-          idle = setTimeout(() => {
-            timedOut = "idle";
-            controller.abort();
-          }, idleSeconds * 1000);
-        };
-        resetIdle();
-        try {
+        {
           let response: Response;
           try {
-            response = await fetch(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), { method: "POST", headers, body: JSON.stringify(requestBody), signal: controller.signal });
+            response = await fetch(endpointUrl(model.baseUrl, model.endpoint, model.rawModelId), { method: "POST", headers, body: stringifyWellFormedJson(requestBody), signal: deadline.signal });
           } catch (error) {
-            if (transientRetries < 2 && !controller.signal.aborted && isTransientNetworkError(error)) {
+            if (transientRetries < 2 && !deadline.signal.aborted && isTransientNetworkError(error)) {
               const delay = retryDelayMs(transientRetries++);
               this.output.appendLine(`[request] retrying transient network failure for ${model.rawModelId} in ${String(delay)}ms`);
-              await waitForRetry(delay, controller.signal);
+              await waitForRetry(delay, deadline.signal);
               continue;
             }
             throw error;
@@ -235,60 +226,42 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
             if (transientRetries < 2 && isTransientServerError(response.status, error.message)) {
               const delay = retryDelayMs(transientRetries++);
               this.output.appendLine(`[request] retrying transient ${response.status} for ${model.rawModelId} in ${String(delay)}ms`);
-              await waitForRetry(delay, controller.signal);
+              await waitForRetry(delay, deadline.signal);
               continue;
             }
             throw error;
           }
           if (!response.body) throw new Error("OpenCode returned an empty response stream");
           const parser = new OpenCodeStreamParser(model.endpoint);
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
           const reporter = new StreamResponseReporter(progress, model.rawModelId, vscode, requestId, (name) => originalToolName(name, options.tools));
+          const report = (event: ReturnType<typeof parser.finish>[number]): void => {
+            sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
+            const usage = reporter.report(event);
+            if (usage) this.setUsage(usage, information.credentialRef);
+          };
           try {
-            while (true) {
-              const part = await reader.read();
-              if (part.done) break;
-              resetIdle();
-              for (const event of parser.push(decoder.decode(part.value, { stream: true }))) {
-                sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
-                const usage = reporter.report(event);
-                if (usage) this.setUsage(usage, information.credentialRef);
-              }
-              if (token.isCancellationRequested) return;
-            }
-            for (const event of parser.push(decoder.decode())) {
-              sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
-              const usage = reporter.report(event);
-              if (usage) this.setUsage(usage, information.credentialRef);
-            }
-            for (const event of parser.finish()) {
-              sawOutput ||= Boolean(event.text || event.reasoning || event.toolCalls?.length);
-              const usage = reporter.report(event);
-              if (usage) this.setUsage(usage, information.credentialRef);
-            }
+            const completed = await readTextStream(response.body, (text) => {
+              for (const event of parser.push(text)) report(event);
+            }, { deadline, isCancelled: () => token.isCancellationRequested });
+            if (!completed) return;
+            for (const event of parser.finish()) report(event);
             validateStreamCompletion(model.rawModelId, parser.finishReason);
           } finally {
             if (!token.isCancellationRequested) reporter.finish();
-            reader.releaseLock();
           }
           if (!sawOutput) throw new Error(`OpenCode returned no content for ${model.rawModelId}`);
           if (!parser.completed) this.output.appendLine(`[response] model=${model.rawModelId} delivered content without a terminal stream event`);
           if (config.get<boolean>("debugLogging", false)) this.output.appendLine(`[response] mode=${mode} model=${model.rawModelId} completed=true`);
           return;
-        } finally {
-          clearTimeout(total);
-          if (idle) clearTimeout(idle);
         }
       }
     } catch (error) {
-      if (timedOut === "idle") throw new Error(`OpenCode request for ${model.rawModelId} received no data for ${idleSeconds} seconds`);
-      if (timedOut === "total") throw new Error(`OpenCode request for ${model.rawModelId} exceeded ${timeoutSeconds} seconds`);
+      const timeout = deadline.timeoutError(`OpenCode request for ${model.rawModelId}`);
+      if (timeout) throw timeout;
       if (token.isCancellationRequested) return;
       throw withContextOverflowHint(error);
     } finally {
-      if (idle) clearTimeout(idle);
-      cancellation.dispose();
+      deadline.dispose();
     }
   }
 
@@ -328,7 +301,8 @@ export class OpenCodeProvider implements vscode.LanguageModelChatProvider<OpenCo
     const defaultBudget = family === "qwen" ? config.get<string>("thinking.qwenBudget", "auto") : undefined;
     const configurationSchema = modelConfigurationSchema(model, defaultEffort, defaultBudget);
     return {
-      id: qualifiedModelId(credentialId, model.id, mode),
+      // Raw hosted ids: VS Code namespaces models per provider entry group.
+      id: model.id,
       name: model.name,
       version: "4-accounts",
       family: model.family,
@@ -454,12 +428,6 @@ function estimateInputTokens(messages: readonly vscode.LanguageModelChatRequestM
   return Math.ceil(characters / 4) + images * 1_024;
 }
 
-function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, milliseconds);
-    signal.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason ?? new Error("Request cancelled")); }, { once: true });
-  });
-}
 
 function sessionIdFrom(messages: readonly vscode.LanguageModelChatRequestMessage[], model: string): string {
   const text = `${model}:${messages.slice(0, 2).map((message) => message.content.map((part) => part instanceof vscode.LanguageModelTextPart ? part.value : "").join(" ")).join("|")}`;

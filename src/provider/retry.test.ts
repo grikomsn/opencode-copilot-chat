@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeHttp400ForRetry, isTransientNetworkError, isTransientServerError, retryDelayMs } from "./retry";
+import { analyzeHttp400ForRetry, isTransientServerError } from "./retry";
+import { isTransientNetworkError, retryDelayMs } from "../kit/retry";
 
 test("removes provider-specific fields rejected by an upstream model", () => {
   assert.deepEqual(
@@ -22,7 +23,7 @@ test("retries only known transient server failures with bounded backoff", () => 
   assert.equal(isTransientServerError(500, "Router.Unavailable"), true);
   assert.equal(isTransientServerError(500, "OpenCode request failed for mimo-v2.5 (500): Internal server error"), true);
   assert.equal(isTransientServerError(500, "permanent failure"), false);
-  assert.deepEqual([0, 1, 2, 8].map(retryDelayMs), [250, 500, 1_000, 2_000]);
+  assert.deepEqual([0, 1, 2, 8].map((attempt) => retryDelayMs(attempt)), [250, 500, 1_000, 2_000]);
 });
 
 test("recognizes transient fetch failures without retrying cancellation", () => {

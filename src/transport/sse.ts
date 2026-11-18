@@ -1,3 +1,4 @@
+import { mergeToolName } from "../kit/chat-completions";
 export interface ToolCallEvent {
   id: string;
   name: string;
@@ -235,7 +236,7 @@ export class OpenCodeStreamParser {
       if (string(item.id)) current.id = string(item.id)!;
       const name = string(fn?.name);
       const argumentsDelta = string(fn?.arguments);
-      if (name) current.name += name;
+      if (name) current.name = mergeToolName(current.name, name);
       if (argumentsDelta) current.arguments += argumentsDelta;
       this.tools.set(key, current);
     }

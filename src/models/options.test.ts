@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { OpenCodeModel } from "./catalog";
-import { contextSizeOptions, modelConfigurationSchema, requestModelConfiguration, resolveContextCap, resolveContextSize, resolveThinkingSelection, thinkingPayload } from "./options";
+import { modelConfigurationSchema, requestModelConfiguration, resolveThinkingSelection, thinkingPayload } from "./options";
+import { contextSizeOptions, resolveContextCap, resolveContextSize } from "../kit/context-size";
 
 const model: OpenCodeModel = {
   id: "gpt-5.6-sol",

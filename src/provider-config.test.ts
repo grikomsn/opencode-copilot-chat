@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { activeConsoleProfileFromState, consoleProfileFromConfiguration, qualifiedModelId } from "./provider-profile";
+import { activeConsoleProfileFromState, consoleProfileFromConfiguration } from "./provider-profile";
 
 test("declares native API-key and Console-profile provider entries", () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -42,8 +42,6 @@ test("declares native API-key and Console-profile provider entries", () => {
 
 test("qualifies model IDs and reports invalid saved Console profiles", () => {
   // Model IDs are raw hosted IDs; the host namespaces them per provider group.
-  assert.equal(qualifiedModelId("profile-work", "openai/gpt-5", "console"), "openai/gpt-5");
-  assert.equal(qualifiedModelId("legacy", "openai/gpt-5", "console"), "openai/gpt-5");
   // Valid IDs can name accounts not signed in yet.
   assert.equal(consoleProfileFromConfiguration({ profile: "wrk_01KQ25AJRFKQDYB04QPEM2PN5C" }), "wrk_01kq25ajrfkqdyb04qpem2pn5c");
 });
