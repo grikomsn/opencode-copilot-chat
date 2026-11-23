@@ -103,7 +103,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
     "minimax-m2.5": {
       id: "minimax-m2.5",
       name: "MiniMax-M2.5",
-      family: "minimax",
+      family: "minimax-m",
       limit: { context: 204_800, output: 131_072 },
       reasoning: true,
       reasoning_options: [],
@@ -114,7 +114,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
     "kimi-k2.5": {
       id: "kimi-k2.5",
       name: "Kimi K2.5",
-      family: "kimi-k2",
+      family: "kimi",
       limit: { context: 262_144, output: 65_536 },
       reasoning: true,
       reasoning_options: [{ type: "toggle" }],
@@ -129,10 +129,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "glm",
       limit: { context: 204_800, output: 131_072 },
       reasoning: true,
-      // Live-verified 2026-10-09: the Go gateway routes glm-5.1/5.2/5.3 to a
-      // GLM-5.3 backend that only accepts reasoning_effort low|high|max —
-      // a thinking toggle or "none" is rejected ("thinking-only model").
-      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
+      reasoning_options: [{ type: "toggle" }],
       tool_call: true,
       modalities: { input: ["text"] },
       cost: { input: 1.4, output: 4.4, cache_read: 0.26 },
@@ -143,8 +140,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
       family: "glm",
       limit: { context: 204_800, output: 131_072 },
       reasoning: true,
-      // Mirrors the live-verified glm-5.1/5.2/5.3 effort set (see above).
-      reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
+      reasoning_options: [{ type: "toggle" }],
       tool_call: true,
       modalities: { input: ["text"] },
       cost: { input: 1, output: 3.2, cache_read: 0.2 },
@@ -152,7 +148,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
     "qwen3.5-plus": {
       id: "qwen3.5-plus",
       name: "Qwen3.5 Plus",
-      family: "qwen",
+      family: "qwen-plus",
       limit: { context: 262_144, output: 65_536 },
       reasoning: true,
       reasoning_options: [{ type: "toggle" }, { type: "budget_tokens" }],
@@ -205,7 +201,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
     "kimi-k2.6": {
       id: "kimi-k2.6",
       name: "Kimi K2.6",
-      family: "kimi-k2",
+      family: "kimi",
       limit: { context: 262_144, output: 65_536 },
       reasoning: true,
       reasoning_options: [{ type: "toggle" }],
@@ -230,7 +226,7 @@ const SUPPLEMENTAL_MODELS: Readonly<Record<"opencode" | "opencode-go", Readonly<
     "qwen3.6-plus": {
       id: "qwen3.6-plus",
       name: "Qwen3.6 Plus",
-      family: "qwen",
+      family: "qwen-plus",
       limit: { context: 262_144, output: 65_536 },
       reasoning: true,
       reasoning_options: [{ type: "toggle" }, { type: "budget_tokens" }],
